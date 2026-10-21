@@ -3,7 +3,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIRECTORY = Path(__file__).resolve().parents[2]
@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     environment: str = "development"
     api_v1_prefix: str = "/api/v1"
     cors_allowed_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    mongodb_uri: SecretStr = SecretStr("mongodb://localhost:27017")
+    mongodb_database_name: str = "nova_yield"
+    mongodb_server_selection_timeout_ms: int = Field(default=2_000, gt=0)
 
     @field_validator("api_v1_prefix")
     @classmethod
@@ -41,6 +44,16 @@ class Settings(BaseSettings):
         if "*" in origins:
             raise ValueError("Wildcard CORS origins are not allowed")
         return ",".join(origins)
+
+    @field_validator("mongodb_database_name")
+    @classmethod
+    def validate_mongodb_database_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("MongoDB database name cannot be empty")
+        if any(character in normalized for character in '/\\ ."$*<>:|?'):
+            raise ValueError("MongoDB database name contains an unsupported character")
+        return normalized
 
     @property
     def cors_origins(self) -> list[str]:

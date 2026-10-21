@@ -5,21 +5,41 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from app.core.config import Settings
-from app.core.readiness import register_readiness_check
 from app.main import create_app
 
 
-def make_app() -> TestClient:
+class FakeMongoConnection:
+    def __init__(self, ready: bool = False, error: Exception | None = None) -> None:
+        self.ready = ready
+        self.error = error
+        self.closed = False
+
+    async def connect(self) -> bool:
+        return self.ready
+
+    async def is_ready(self) -> bool:
+        if self.error is not None:
+            raise self.error
+        return self.ready
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+def make_app(*, database_ready: bool = False) -> tuple[TestClient, FakeMongoConnection]:
     settings = Settings(
         _env_file=None,
         app_name="Nova Yield Test API",
         cors_allowed_origins="http://localhost:5173",
     )
-    return TestClient(create_app(settings))
+    mongo = FakeMongoConnection(database_ready)
+    app = create_app(settings, mongo_connection_factory=lambda _settings: mongo)
+    return TestClient(app), mongo
 
 
 def test_application_starts_and_exposes_openapi() -> None:
-    with make_app() as client:
+    client, _mongo = make_app()
+    with client:
         response = client.get("/openapi.json")
 
     assert response.status_code == 200
@@ -27,38 +47,58 @@ def test_application_starts_and_exposes_openapi() -> None:
 
 
 def test_liveness_does_not_depend_on_database_readiness() -> None:
-    with make_app() as client:
+    client, _mongo = make_app()
+    with client:
         response = client.get("/health/live")
 
     assert response.status_code == 200
     assert response.json() == {"status": "alive"}
 
 
-def test_readiness_reports_unconfigured_database() -> None:
-    with make_app() as client:
+def test_readiness_reports_unavailable_database() -> None:
+    client, _mongo = make_app()
+    with client:
         response = client.get("/health/ready")
 
     assert response.status_code == 503
     assert response.json() == {
         "status": "not_ready",
-        "checks": {"database": "not_configured"},
+        "checks": {"database": "unavailable"},
     }
 
 
 def test_readiness_reflects_registered_database_check() -> None:
     settings = Settings(_env_file=None)
-    app = create_app(settings)
-    register_readiness_check(app, "database", lambda: True)
+    mongo = FakeMongoConnection(ready=True)
+    app = create_app(settings, mongo_connection_factory=lambda _settings: mongo)
 
     with TestClient(app) as client:
         response = client.get("/health/ready")
 
     assert response.status_code == 200
     assert response.json() == {"status": "ready", "checks": {"database": "ok"}}
+    assert mongo.closed
+
+
+def test_readiness_does_not_return_dependency_exception_text() -> None:
+    settings = Settings(_env_file=None)
+    mongo = FakeMongoConnection(
+        ready=False,
+        error=RuntimeError("mongodb://private-user:private-password@database"),
+    )
+    app = create_app(settings, mongo_connection_factory=lambda _settings: mongo)
+
+    with TestClient(app) as client:
+        response = client.get("/health/ready")
+
+    assert response.status_code == 503
+    assert "private-password" not in response.text
+    assert "mongodb://" not in response.text
 
 
 def test_cors_allows_configured_frontend_origin_with_credentials() -> None:
-    with make_app() as client:
+    client, _mongo = make_app()
+    with client:
         response = client.options(
             "/api/v1/example",
             headers={

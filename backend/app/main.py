@@ -1,6 +1,6 @@
 """FastAPI application factory and ASGI entry point."""
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -9,18 +9,31 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.health import router as health_router
 from app.api.router import api_router
 from app.core.config import Settings, get_settings
+from app.core.readiness import register_readiness_check
+from app.database.connection import MongoConnection
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    *,
+    mongo_connection_factory: Callable[[Settings], MongoConnection] = MongoConnection,
+) -> FastAPI:
     """Build a configured FastAPI application, allowing isolated test settings."""
 
     app_settings = settings or get_settings()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        # NY-4 will replace this placeholder with a MongoDB ping check during startup.
-        app.state.readiness_checks.setdefault("database", None)
-        yield
+        # Create the async client inside the lifespan so it belongs to this app's event loop.
+        mongo = mongo_connection_factory(app_settings)
+        app.state.mongo = mongo
+        register_readiness_check(app, "database", mongo.is_ready)
+        try:
+            # A failed ping keeps the process alive; readiness reports that it cannot serve.
+            await mongo.connect()
+            yield
+        finally:
+            await mongo.close()
 
     application = FastAPI(
         title=app_settings.app_name,

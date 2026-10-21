@@ -18,7 +18,7 @@ NovaYield/
 ```
 
 - **`frontend/`** contains the React application, browser-facing configuration, and Node dependencies. It currently provides only the initial application shell.
-- **`backend/`** contains the FastAPI app, Python dependencies, API configuration, backend tests, and the backend contract note. MongoDB, authentication, NASA ingestion, and decision logic are reserved for their implementation tickets.
+- **`backend/`** contains the FastAPI app, Python dependencies, API configuration, backend tests, and persistence conventions. NY-4 establishes the shared MongoDB connection and Beanie initialization; authentication, domain collections, NASA ingestion, and decision logic remain in their feature tickets.
 - **`analysis_docs/`** contains human-authored research and analytical work. Runtime data such as user accounts, farm records, decision results, and NASA response caches belongs in backend persistence (MongoDB), never in this directory.
 
 ## Technologies
@@ -26,8 +26,8 @@ NovaYield/
 | Area | Foundation technology |
 | --- | --- |
 | Frontend | React, TypeScript, Vite, Oxlint |
-| Backend | Python, FastAPI, Pydantic Settings, Uvicorn |
-| Database | MongoDB is the agreed persistence technology; connection and repositories are not implemented in this foundation |
+| Backend | Python, FastAPI, Pydantic Settings, Uvicorn, Beanie |
+| Database | MongoDB through one shared PyMongo async client and Beanie initialization boundary |
 | External data | NASA Earth observation APIs, to be integrated by later backend tickets |
 
 The frontend and backend install their dependencies separately. `frontend/package-lock.json` locks the Node dependency tree; Python dependencies currently use bounded compatible ranges in requirement files and are not yet lockfile-pinned.
@@ -71,7 +71,7 @@ python -m uvicorn app.main:app --reload
 - Liveness: <http://127.0.0.1:8000/health/live>
 - Readiness: <http://127.0.0.1:8000/health/ready>
 
-Readiness currently reports `database: not_configured` and HTTP 503. That is expected until the MongoDB integration ticket registers a database check. Liveness and OpenAPI work without MongoDB.
+The backend expects a MongoDB service at `mongodb://localhost:27017` by default. Set `NOVAYIELD_MONGODB_URI` and `NOVAYIELD_MONGODB_DATABASE_NAME` in `backend/.env` to use another development database. The API can start while MongoDB is unavailable, but `/health/ready` reports HTTP 503 until the connection and Beanie initialization succeed. Liveness and OpenAPI remain available.
 
 Run backend tests and code checks from `backend/`:
 
@@ -112,12 +112,13 @@ The Vite dev server reads `VITE_API_BASE_URL` from `frontend/.env.local`; the sa
 ## Development boundaries and decisions
 
 - The root keeps the monorepo simple: one repository and separate dependency/configuration boundaries, without adding a workspace manager before it is needed.
-- The FastAPI application factory, settings, API router hook, and health endpoints live under `backend/app/`. Feature routers can be registered under `/api/v1`; request/response schemas, MongoDB documents, repositories, services, and external NASA clients should remain separate as their tickets are implemented.
+- The FastAPI application factory, settings, API router hook, health endpoints, and shared MongoDB/Beanie boundary live under `backend/app/`. Feature routers can be registered under `/api/v1`; request/response schemas, MongoDB documents, repositories, services, and external NASA clients remain in their respective feature modules.
 - API settings are read from environment variables rather than hard-coded deployment values. CORS allows explicit configured origins with credentials and rejects wildcard origins.
 - Liveness checks only the API process. Readiness checks required dependencies and safely reports unavailable/not-configured status without returning connection details.
 - React and Vite are isolated under `frontend/`. The current screen is a minimal project shell, not a feature page. API configuration is ready for later integration through `VITE_API_BASE_URL`.
 - Backend tests live in `backend/tests/`; the frontend currently has type, lint, and production-build checks but no test runner.
 - Backend contracts and proposed module ownership are documented in [`backend/docs/backend-contracts.md`](backend/docs/backend-contracts.md). The implementation avoids choosing unresolved agronomic rules, crop scoring, or NASA data freshness thresholds before the research tickets provide evidence.
+- MongoDB lifecycle, model registration, references, indexes, and local setup are documented in [`backend/docs/persistence-conventions.md`](backend/docs/persistence-conventions.md).
 
 ## Analysis workflow
 

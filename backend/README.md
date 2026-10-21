@@ -1,0 +1,59 @@
+# Backend
+
+This directory contains Nova Yield's FastAPI application and Python dependencies. The backend owns API behavior, MongoDB-backed application persistence, and integrations with external data providers. Research notes and analysis artifacts belong in the repository's `analysis_docs/` directory.
+
+## Layout
+
+- `app/main.py` creates the FastAPI app and manages its startup/shutdown lifespan.
+- `app/core/` contains shared settings and cross-cutting infrastructure.
+- `app/database/` owns the shared Mongo client, Beanie initialization, document registry, and connection dependencies.
+- `app/models/` is where feature teams add their own Beanie document modules.
+- `app/api/` contains health endpoints and the versioned router registration point.
+- `tests/` contains backend unit and optional database integration tests.
+- `docs/backend-contracts.md` defines the API and module contracts from NY-1.
+- `docs/persistence-conventions.md` explains MongoDB references, indexes, and lifecycle conventions from NY-4.
+
+## Local development (Windows PowerShell)
+
+From the repository root:
+
+```powershell
+cd backend
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements-dev.txt
+Copy-Item .env.example .env
+```
+
+The default settings expect MongoDB at `mongodb://localhost:27017` and use the `nova_yield` database. Start a local MongoDB service or set `NOVAYIELD_MONGODB_URI` and `NOVAYIELD_MONGODB_DATABASE_NAME` in `backend/.env` to point to an existing development database. Never put a production URI or credentials in `.env.example` or commit a real `.env` file.
+
+If using Docker Desktop for a disposable local database, start its engine and run:
+
+```powershell
+docker run --name nova-yield-mongo --publish 27017:27017 --detach mongo:8
+```
+
+Stop it with `docker stop nova-yield-mongo`; remove the container with `docker rm nova-yield-mongo` only when you no longer need that local database.
+
+Start the API from `backend/`:
+
+```powershell
+python -m uvicorn app.main:app --reload
+```
+
+The API is at `http://127.0.0.1:8000`, OpenAPI docs at `http://127.0.0.1:8000/docs`, and health probes at `/health/live` and `/health/ready`. The process can start while MongoDB is unavailable; `/health/ready` returns HTTP 503 until the database can be reached and Beanie initialization succeeds.
+
+## Checks
+
+Run from `backend/`:
+
+```powershell
+python -m pytest
+python -m ruff check .
+python -m ruff format --check .
+```
+
+The unit tests use fakes and do not require MongoDB. To run the focused real-database index test, set `NOVAYIELD_TEST_MONGODB_URI` in the current PowerShell session to a disposable test MongoDB URI, then run `python -m pytest tests/test_database.py -k integration`. The test creates and drops a uniquely named temporary database.
+
+The committed `.env.example` contains non-secret development defaults. Read [the persistence conventions](docs/persistence-conventions.md) before adding a model or repository.

@@ -3,9 +3,14 @@
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
+import httpx
 import pytest
 
 from app.integrations.nasa.power import (
+    NASA_POWER_DAILY_ENDPOINT,
+    NASAPowerHttpClient,
+    NASAPowerService,
+    PowerHTTPError,
     PowerRequest,
     PowerResult,
     PowerTimeoutError,
@@ -92,6 +97,46 @@ def make_snapshot(identity: SnapshotIdentity, result: PowerResult) -> Environmen
     return EnvironmentalSnapshot.model_construct(
         **snapshot_fields_from_power_result(identity, result)
     )
+
+
+def make_http_payload(request: PowerRequest) -> dict[str, Any]:
+    dates = []
+    current = request.start_date
+    while current <= request.end_date:
+        dates.append(current.strftime("%Y%m%d"))
+        current += timedelta(days=1)
+    return {
+        "type": "Feature",
+        "geometry": {"type": "Point", "coordinates": [request.longitude, request.latitude]},
+        "properties": {
+            "parameter": {
+                "PRECTOTCORR": {key: 2.0 for key in dates},
+                "T2M": {key: 28.0 for key in dates},
+                "T2M_MAX": {key: 34.0 for key in dates},
+            }
+        },
+        "header": {
+            "title": "NASA POWER Daily Source Native Resolution",
+            "api": {"name": "POWER Daily API", "version": "v2"},
+            "fill_value": -999,
+            "sources": ["MERRA2"],
+        },
+        "messages": [],
+        "parameters": {
+            "PRECTOTCORR": {
+                "units": "mm/day",
+                "longname": "Precipitation",
+                "source": "MERRA2",
+            },
+            "T2M": {"units": "C", "longname": "Temperature", "source": "MERRA2"},
+            "T2M_MAX": {
+                "units": "C",
+                "longname": "Maximum temperature",
+                "source": "MERRA2",
+            },
+        },
+        "times": {},
+    }
 
 
 class FakeRepository:
@@ -218,6 +263,60 @@ def test_cache_miss_persists_live_values_and_later_hit_skips_nasa() -> None:
     assert repository.insert_calls == 1
     assert repository.lease_calls == 1
     assert repository.release_calls == 1
+
+
+def test_nasa_http_adapter_flows_through_snapshot_cache_and_reuse() -> None:
+    upstream_requests: list[httpx.Request] = []
+    test_now = datetime.now(UTC)
+
+    def mocked_nasa_response(request: httpx.Request) -> httpx.Response:
+        upstream_requests.append(request)
+        if len(upstream_requests) > 1:
+            return httpx.Response(503, text="temporary outage near 77.123, 88.456")
+        return httpx.Response(200, json=make_http_payload(REQUEST))
+
+    async_http_client = httpx.AsyncClient(transport=httpx.MockTransport(mocked_nasa_response))
+    nasa_service = NASAPowerService(NASAPowerHttpClient(async_http_client))
+    repository = FakeRepository()
+    cache_service = EnvironmentalSnapshotService(
+        repository=repository,
+        nasa_service=nasa_service,
+        location_secret=LOCATION_SECRET,
+        snapshot_factory=make_snapshot,
+    )
+
+    try:
+        first = run_immediately(cache_service.retrieve(REQUEST, now=test_now))
+        second = run_immediately(
+            cache_service.retrieve(REQUEST, now=test_now + timedelta(minutes=1))
+        )
+        refreshed = run_immediately(
+            cache_service.retrieve(
+                REQUEST,
+                force_refresh=True,
+                now=test_now + timedelta(days=1),
+            )
+        )
+    finally:
+        run_immediately(async_http_client.aclose())
+
+    assert len(upstream_requests) == 2
+    assert str(upstream_requests[0].url).startswith(NASA_POWER_DAILY_ENDPOINT)
+    assert upstream_requests[0].url.params["time-standard"] == "UTC"
+    assert first.data_status == "live"
+    assert first.snapshot is not None
+    assert first.snapshot.parameters["PRECTOTCORR"].seasonal_summary.value == 4.0
+    assert first.snapshot.parameters["T2M"].metadata.source == "MERRA2"
+    assert second.data_status == "cached"
+    assert second.cache_action == "hit"
+    assert second.snapshot is not None
+    assert second.snapshot.parameters["PRECTOTCORR"].seasonal_summary.value == 4.0
+    assert refreshed.data_status == "cached"
+    assert refreshed.cache_action == "refresh_failed"
+    assert refreshed.error_code == PowerHTTPError.__name__
+    assert refreshed.snapshot is not None
+    assert refreshed.snapshot.parameters["PRECTOTCORR"].seasonal_summary.value == 4.0
+    assert "77.123" not in str(refreshed.warnings)
 
 
 def test_source_policy_refreshes_stale_snapshot_and_replaces_it() -> None:

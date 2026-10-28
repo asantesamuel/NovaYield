@@ -58,6 +58,13 @@ python -m ruff check .
 python -m ruff format --check .
 ```
 
-The unit tests use fakes and do not require MongoDB. To run the focused real-database index test, set `NOVAYIELD_TEST_MONGODB_URI` in the current PowerShell session to a disposable test MongoDB URI, then run `python -m pytest tests/test_database.py -k integration`. The test creates and drops a uniquely named temporary database.
+The unit tests use fakes and do not require MongoDB. To run the optional real-database checks, set `NOVAYIELD_TEST_MONGODB_URI` in the current PowerShell session to a disposable test MongoDB URI, then run:
+
+```powershell
+python -m pytest tests/test_database.py -k integration
+python -m pytest tests/test_environmental_snapshot_integration.py
+```
+
+Both integration tests create and drop uniquely named temporary databases. The snapshot test mocks NASA POWER and verifies that MongoDB stores one normalized snapshot which a later request reuses without another provider call. Do not point these tests at a database containing data you need to keep.
 
 The committed `.env.example` contains non-secret development defaults. Read [the persistence conventions](docs/persistence-conventions.md) before adding a model or repository.

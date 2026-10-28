@@ -9,11 +9,13 @@ This directory contains Nova Yield's FastAPI application and Python dependencies
 - `app/database/` owns the shared Mongo client, Beanie initialization, document registry, and connection dependencies.
 - `app/integrations/nasa/power.py` owns the isolated NASA POWER Daily Point client and normalization service.
 - `app/models/` is where feature teams add their own Beanie document modules.
+- `app/repositories/` contains feature-owned MongoDB read/write boundaries, including the NY-6 environmental snapshot repository.
 - `app/api/` contains health endpoints and the versioned router registration point.
 - `tests/` contains backend unit and optional database integration tests.
 - `docs/backend-contracts.md` defines the API and module contracts from NY-1.
 - `docs/persistence-conventions.md` explains MongoDB references, indexes, and lifecycle conventions from NY-4.
 - `docs/nasa-power.md` records the NY-5 request, normalization, coverage, privacy, and error contracts.
+- `docs/nasa-power-snapshots.md` records the NY-6 identity, persistence, and refresh-policy decisions.
 
 ## Local development (Windows PowerShell)
 

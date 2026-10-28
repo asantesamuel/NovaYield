@@ -1,6 +1,6 @@
 # NASA POWER Snapshot Contract (NY-6)
 
-This is the first NY-6 implementation slice: it preserves the NY-13 research handoff and defines the safe request identity and MongoDB document shape. Repository operations and cache/refresh behavior are separate follow-up subtasks.
+This document records the NY-6 request identity and MongoDB persistence boundary. The cache/refresh policy remains a follow-up subtask.
 
 ## Request identity
 
@@ -20,6 +20,12 @@ The HMAC secret is supplied to the identity builder and must be stable across ap
 `EnvironmentalSnapshot` stores the request identity, NASA URL without query coordinates, retrieval status/time, provider metadata, normalized daily/seasonal parameter series, and the season/crop context associated with each use. The unique index on `identity.request_key` prevents duplicate snapshot records. The model excludes raw coordinates and the raw provider response; the normalized result from NY-5 is the persisted payload.
 
 A stored record's `retrieval_status` records that the original provider retrieval was live. A later cache-service response must report `cached` for a cache hit; it must not relabel the original retrieval or call cached values live.
+
+## Repository boundary
+
+`EnvironmentalSnapshotRepository.find_by_identity()` retrieves the document by its opaque request key and returns the persisted parameter series for downstream NY-7 processing. It does not call NASA. `insert_if_absent()` checks first, inserts on a miss, and recovers from a duplicate-key race by returning the winning document. The unique index prevents duplicate records, but it cannot prevent two workers from both calling NASA before either writes; per-request coordination belongs in the cache-service subtask. `add_request_context()` uses MongoDB `$addToSet` so repeated crop/season context is not duplicated.
+
+Database driver errors are converted to safe repository exceptions; connection details and driver messages are not exposed. These repository operations require NY-4's Beanie initialization and the registered snapshot model.
 
 ## Freshness remains a separate policy decision
 

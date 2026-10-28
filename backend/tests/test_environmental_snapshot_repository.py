@@ -1,9 +1,10 @@
 """Mock-backed tests for the NY-6 snapshot repository."""
 
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
+from bson import ObjectId
 from pymongo.errors import DuplicateKeyError, ServerSelectionTimeoutError
 
 from app.integrations.nasa.power import PowerRequest
@@ -242,4 +243,204 @@ def test_request_context_is_added_with_atomic_add_to_set(
                 }
             }
         }
+    ]
+
+
+def test_replace_after_refresh_keeps_document_id_and_merges_contexts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first_context = SnapshotSeasonContext(
+        season_label="major-season-v1",
+        calendar_source_version="research-v1",
+        crop="maize",
+    )
+    second_context = SnapshotSeasonContext(
+        season_label="minor-season-v1",
+        calendar_source_version="research-v1",
+        crop="sorghum",
+    )
+    document_id = ObjectId()
+    existing = make_snapshot()
+    existing.id = document_id
+    existing.request_contexts = [first_context]
+    candidate = make_snapshot()
+    candidate.request_contexts = [second_context]
+    replace_calls: list[EnvironmentalSnapshot] = []
+
+    async def fake_find_one(
+        _model: type[EnvironmentalSnapshot],
+        _query: dict[str, str],
+        *,
+        ignore_cache: bool,
+    ) -> EnvironmentalSnapshot:
+        assert ignore_cache
+        return existing
+
+    async def fake_replace(snapshot: EnvironmentalSnapshot) -> EnvironmentalSnapshot:
+        replace_calls.append(snapshot)
+        return snapshot
+
+    monkeypatch.setattr(EnvironmentalSnapshot, "find_one", classmethod(fake_find_one))
+    monkeypatch.setattr(EnvironmentalSnapshot, "replace", fake_replace)
+
+    outcome = run_immediately(EnvironmentalSnapshotRepository().replace_after_refresh(candidate))
+
+    assert outcome.inserted is False
+    assert outcome.replaced is True
+    assert outcome.snapshot.id == document_id
+    assert outcome.snapshot.request_contexts == [first_context, second_context]
+    assert replace_calls == [candidate]
+
+
+class FakeLeaseCollection:
+    def __init__(
+        self, *, result: dict[str, Any] | None = None, error: Exception | None = None
+    ) -> None:
+        self.result = result
+        self.error = error
+        self.index_calls: list[tuple[str, dict[str, Any]]] = []
+        self.find_update_calls: list[tuple[dict[str, Any], dict[str, Any], dict[str, Any]]] = []
+        self.delete_calls: list[dict[str, str]] = []
+
+    async def create_index(self, field: str, **options: Any) -> str:
+        self.index_calls.append((field, options))
+        return options["name"]
+
+    async def find_one_and_update(
+        self,
+        query: dict[str, Any],
+        update: dict[str, Any],
+        **options: Any,
+    ) -> dict[str, Any] | None:
+        self.find_update_calls.append((query, update, options))
+        if self.error:
+            raise self.error
+        return self.result
+
+    async def delete_one(self, query: dict[str, str]) -> None:
+        self.delete_calls.append(query)
+
+
+class FakeDatabase(dict[str, FakeLeaseCollection]):
+    pass
+
+
+class FakeSnapshotCollection:
+    def __init__(self, database: FakeDatabase) -> None:
+        self.database = database
+
+
+@pytest.mark.parametrize("lease_result", [{"owner_token": "worker-a"}, None])
+def test_request_lease_acquisition_uses_expiry_and_owner_token(
+    monkeypatch: pytest.MonkeyPatch,
+    lease_result: dict[str, str] | None,
+) -> None:
+    lease_collection = FakeLeaseCollection(result=lease_result)
+    database = FakeDatabase(environmental_snapshot_request_leases=lease_collection)
+    monkeypatch.setattr(
+        EnvironmentalSnapshot,
+        "get_pymongo_collection",
+        classmethod(lambda _model: FakeSnapshotCollection(database)),
+    )
+    now = datetime(2026, 10, 1, tzinfo=UTC)
+    expires_at = now + timedelta(seconds=60)
+
+    acquired = run_immediately(
+        EnvironmentalSnapshotRepository().try_acquire_request_lease(
+            "opaque-request-key",
+            owner_token="worker-a",
+            now=now,
+            expires_at=expires_at,
+        )
+    )
+
+    query, update, options = lease_collection.find_update_calls[0]
+    assert lease_collection.index_calls == [
+        (
+            "lease_expires_at",
+            {"expireAfterSeconds": 0, "name": "request_lease_expires_at_ttl"},
+        )
+    ]
+    assert query == {
+        "_id": "opaque-request-key",
+        "$or": [
+            {"lease_expires_at": {"$lte": now}},
+            {"owner_token": "worker-a"},
+        ],
+    }
+    assert update["$set"] == {
+        "owner_token": "worker-a",
+        "lease_expires_at": expires_at,
+    }
+    assert options["upsert"] is True
+    assert acquired is (lease_result is not None)
+
+
+def test_active_request_lease_duplicate_key_means_another_worker_owns_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lease_collection = FakeLeaseCollection(error=DuplicateKeyError("opaque key already exists"))
+    database = FakeDatabase(environmental_snapshot_request_leases=lease_collection)
+    monkeypatch.setattr(
+        EnvironmentalSnapshot,
+        "get_pymongo_collection",
+        classmethod(lambda _model: FakeSnapshotCollection(database)),
+    )
+
+    acquired = run_immediately(
+        EnvironmentalSnapshotRepository().try_acquire_request_lease(
+            "opaque-request-key",
+            owner_token="worker-b",
+            now=datetime(2026, 10, 1, tzinfo=UTC),
+            expires_at=datetime(2026, 10, 1, 0, 1, tzinfo=UTC),
+        )
+    )
+
+    assert acquired is False
+
+
+def test_request_lease_database_errors_are_sanitized(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lease_collection = FakeLeaseCollection(
+        error=ServerSelectionTimeoutError("mongodb://user:private-password@host")
+    )
+    database = FakeDatabase(environmental_snapshot_request_leases=lease_collection)
+    monkeypatch.setattr(
+        EnvironmentalSnapshot,
+        "get_pymongo_collection",
+        classmethod(lambda _model: FakeSnapshotCollection(database)),
+    )
+
+    with pytest.raises(SnapshotStorageUnavailable) as unavailable:
+        run_immediately(
+            EnvironmentalSnapshotRepository().try_acquire_request_lease(
+                "opaque-request-key",
+                owner_token="worker-b",
+                now=datetime(2026, 10, 1, tzinfo=UTC),
+                expires_at=datetime(2026, 10, 1, 0, 1, tzinfo=UTC),
+            )
+        )
+    assert "private-password" not in str(unavailable.value)
+
+
+def test_request_lease_release_only_deletes_its_owner_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lease_collection = FakeLeaseCollection()
+    database = FakeDatabase(environmental_snapshot_request_leases=lease_collection)
+    monkeypatch.setattr(
+        EnvironmentalSnapshot,
+        "get_pymongo_collection",
+        classmethod(lambda _model: FakeSnapshotCollection(database)),
+    )
+
+    run_immediately(
+        EnvironmentalSnapshotRepository().release_request_lease(
+            "opaque-request-key", owner_token="worker-a"
+        )
+    )
+
+    assert lease_collection.delete_calls == [
+        {"_id": "opaque-request-key", "owner_token": "worker-a"}
     ]

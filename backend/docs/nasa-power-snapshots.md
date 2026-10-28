@@ -1,6 +1,6 @@
 # NASA POWER Snapshot Contract (NY-6)
 
-This document records the NY-6 request identity and MongoDB persistence boundary. The cache/refresh policy remains a follow-up subtask.
+This document records the NY-6 request identity, MongoDB persistence boundary, and cache/refresh behavior.
 
 ## Request identity
 
@@ -23,18 +23,24 @@ A stored record's `retrieval_status` records that the original provider retrieva
 
 ## Repository boundary
 
-`EnvironmentalSnapshotRepository.find_by_identity()` retrieves the document by its opaque request key and returns the persisted parameter series for downstream NY-7 processing. It does not call NASA. `insert_if_absent()` checks first, inserts on a miss, and recovers from a duplicate-key race by returning the winning document. The unique index prevents duplicate records, but it cannot prevent two workers from both calling NASA before either writes; per-request coordination belongs in the cache-service subtask. `add_request_context()` uses MongoDB `$addToSet` so repeated crop/season context is not duplicated.
+`EnvironmentalSnapshotRepository.find_by_identity()` retrieves the document by its opaque request key and returns the persisted parameter series for downstream NY-7 processing. It does not call NASA. `insert_if_absent()` checks first, inserts on a miss, and recovers from a duplicate-key race by returning the winning document. A short-lived MongoDB request lease is acquired before a NASA call so concurrent requests in separate API processes coordinate on the same opaque request key; an in-process lock avoids duplicate work within one process. The lease expires if a worker terminates unexpectedly and its expiry index is TTL-cleaned. The lease is coordination metadata, not environmental or farm data. `add_request_context()` uses MongoDB `$addToSet` so repeated crop/season context is not duplicated.
 
 Database driver errors are converted to safe repository exceptions; connection details and driver messages are not exposed. These repository operations require NY-4's Beanie initialization and the registered snapshot model.
 
-## Freshness remains a separate policy decision
+## Cache and refresh behavior
 
 No fixed TTL is encoded in this schema. NASA reports that GEOS-IT daily meteorological data is appended daily and generally becomes available around two days after real time; MERRA-2 values in the series are typically updated every several months. Precipitation and temperature metadata can identify differing sources, so one universal interval would not be evidence-based. See NASA's [meteorological data-source notes](https://power.larc.nasa.gov/docs/methodology/data/sources_meteorology/) and [data latency FAQ](https://power.larc.nasa.gov/docs/faqs/data/).
 
-The cache-service subtask must define explicit refresh behavior from the stored parameter/source metadata, allow a configured policy, expose freshness and cached status, support a caller-requested refresh, and preserve the last valid snapshot if NASA refresh fails. NY-13 leaves minimum coverage and cache freshness policy for product/backend approval; this subtask does not silently choose either threshold.
+`EnvironmentalSnapshotService.retrieve()` returns a matching stored snapshot without calling NASA unless it is stale under a configured source policy or the caller explicitly requests refresh. The response distinguishes `live`, `cached`, and `unavailable` data, reports freshness as `fresh`, `stale`, or `unknown`, and states whether a refresh was attempted. A cache hit also returns the stored normalized values directly for later processing; it does not require an upstream request.
+
+No source refresh interval is enabled by default. NY-13 records NASA update behavior that differs by source: daily GEOS-IT meteorological values are generally appended around two days behind real time, while MERRA-2 values are typically updated every several months. The NY-13 specification explicitly leaves the cache freshness policy for product/backend approval. Therefore, until source-specific intervals are approved and configured, a matching snapshot has `unknown` freshness and is reused; an explicit refresh can request new values. This is a deliberate no-implicit-TTL behavior, not a claim that the snapshot is current. The age remains available in the freshness assessment.
+
+When a configured source interval has elapsed, the service attempts refresh. If NASA fails, it retains and returns the previous snapshot labeled `cached`, with stale/unknown freshness and a warning. If no snapshot exists and retrieval fails, the outcome is `unavailable`; the service never fabricates a fallback. If another process currently owns the request lease, a stored snapshot can be served with `refresh_in_progress`; without one, the caller receives an unavailable/in-progress result and can retry. Lease coordination is bounded by the lease duration, which must exceed the NASA HTTP client's timeout.
+
+The service accepts an injectable per-source refresh policy. Configure one only after the team approves the source-specific interval; do not supply a universal fixed TTL. Minimum coverage and source freshness policy remain open product/backend decisions in NY-13, and no coverage threshold is silently selected here.
 
 ## Research source and open points
 
 The team-provided NY-13 specification is preserved in [`analysis_docs/research/ny-13-nasa-power-input-specification.md`](../../analysis_docs/research/ny-13-nasa-power-input-specification.md). The pilot point and crop-specific seasonal windows remain provisional pending local validation. This module does not add a route, authorize farm access, store farm IDs, or decide agronomic recommendations. Later authenticated farm workflows must authorize access before requesting or returning a snapshot.
 
-The current NY-5 result carries season label, crop, and calendar version, but it does not carry the local municipality/community label. Add that context only when the farm/environmental service has a source-of-truth field; do not infer it from coordinates or NASA's `AG` API community.
+The current NY-5 result carries season label, crop, and calendar version, but it does not carry the local municipality/community label. Add that context only when the farm/environmental service has a source-of-truth field; do not infer it from coordinates or NASA's `AG` API community. The NY-6 service/repository are not yet exposed through an authenticated farm API route; downstream route work must enforce farm ownership before accessing a snapshot.

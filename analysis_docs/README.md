@@ -10,4 +10,4 @@ Suggested organization as research work begins:
 - `decisions/` for pilot, crop, and agronomic decision records.
 - `experiments/` for analytical notebooks, scripts, and analysis tests.
 
-No research conclusions are pre-filled here; those should be added through the relevant research tickets.
+Research findings supplied for implementation should be preserved under `research/` and linked from the relevant backend documentation. The NY-13 NASA POWER inputs and indicators specification is stored in [`research/ny-13-nasa-power-input-specification.md`](research/ny-13-nasa-power-input-specification.md); its pilot location and freshness/coverage policies remain provisional or unresolved as stated in that document.

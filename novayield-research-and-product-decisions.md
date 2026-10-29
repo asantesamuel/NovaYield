@@ -1,24 +1,25 @@
 # NovaYield Research and Product Decisions
 
-**Purpose:** Consolidate the research comments on Jira NY-12 through NY-16, compare them with the NovaYield MVP PRD, and identify the approvals needed before the related implementation decisions are treated as final.
+**Purpose:** Consolidate the research comments on Jira NY-12 through NY-16, compare them with the NovaYield MVP PRD, and record the approved product direction and assumptions for future NovaYield work.
 
-**Evidence reviewed:** The five Jira issues and their one comment each, in the Jira project named **Nova Yield** (project key `NY`); and *NovaYield MVP PRD*, version 1.0, dated 15 October 2026, marked “Draft for team alignment.” Jira was reviewed on 29 October 2026. The research comments are dated 24 October 2026.
+**Evidence reviewed:** The five Jira issues and their one comment each, in the Jira project named **Nova Yield** (project key `NY`); and *NovaYield MVP PRD*, version 1.0, dated 15 October 2026, marked “Draft for team alignment.” Jira was reviewed on 29 October 2026. The research comments are dated 24 October 2026. The Product Owner subsequently approved decisions 1–9 below on 29 October 2026.
 
-**Interpretation rule:** Statements below are identified as PRD requirements, reported research findings, recommendations, or open decisions. A desk-based recommendation is not presented as local agronomic validation.
+**Interpretation rule:** Statements below distinguish PRD requirements, reported research findings, finalized product decisions, technical recommendations, and assumptions that remain provisional pending local review. Product approval of a direction does not convert desk research into local agronomic validation.
 
 ## 1. Executive Summary
 
-The research comments provide a coherent starting design for a one-area, transparent crop-rotation decision-support MVP. They do not yet authorize final local crop rules or a definitive ranking policy.
+The Product Owner has finalized the direction for all nine product questions. Implementation should follow the decisions in §6. The most important boundary is that **product decisions are final for the MVP, while agronomic and location-specific evidence remains provisional until future field or expert validation**.
 
-- **Pilot:** NY-12 recommends Ejura-Sekyedumase Municipality in Ashanti Region as a *provisional* pilot, sampling more than one community/location to represent its north–south variation. Kintampo South is the proposed fallback. The PRD requires one Ghanaian zone but leaves the exact area open. The Product Owner must confirm the pilot geography and demonstration location(s).
-- **Crop candidates:** NY-14 recommends maize, cowpea, groundnut, cassava, yam, and rice. This is a reasonable locally grounded candidate library, but differs from the PRD's illustrative examples (maize, cowpea, groundnut, cassava, sorghum, soybean). The PRD permits four to six locally evidenced crops; the Product Owner must approve the proposed substitution.
-- **Season calendar:** Ejura-Sekyedumase has materially different rainfall patterns across the municipality. The sources describe broad seasons, not implementation-ready planting windows for every crop, community, variety, and production system. Do not hard-code one municipality-wide date or treat a provisional window as an agronomic recommendation.
-- **NASA POWER:** NY-13 specifies daily `PRECTOTCORR`, `T2M`, and `T2M_MAX` inputs and three candidate indicators. NASA POWER's daily service defaults to local solar time unless UTC is requested, and reports meteorological variables at their source-product resolutions. Metadata from the actual response at the approved demonstration location still needs verification.
-- **Agronomic rules:** NY-15 supports strict input/season integrity checks now. Repeated-crop bans, family bans, nitrogen credits, disease break intervals, and crop-specific water/soil thresholds should remain inactive until evidence for the specific crop, variety, production system, and pilot community is reviewed.
-- **Comparison:** The PRD explicitly requires four criteria, hard constraints before ranking, farmer priorities affecting weights, visible assumptions, reproducibility, and no false precision. NY-16 proposes qualitative ratings, equal 25% provisional weights, evidence confidence separate from performance, sensitivity checks, and explicit missing-data behavior. The equal weights and minimum evidence rule are proposals, not validated values.
-- **Product Owner decisions:** Confirm the pilot and points, crop shortlist, handling of unvalidated seasons, whether to show two or three indicators, default/farmer weighting controls, minimum evidence needed for an overall rank, sensitivity display, and the freshness policy for recent NASA data. Decide whether an extension officer/agronomist can review the rules before they are described as locally validated.
+- **Pilot:** Use Ejura-Sekyedumase Municipality as the provisional first pilot. Plan for at least two representative public/community reference points, selected with extension input. Exact points and local validation remain outstanding.
+- **Candidate crops:** Use maize, cowpea, groundnut, cassava, yam, and rice as the initial candidate library. Crop trait values and recommendation eligibility remain provisional when evidence is missing.
+- **Season windows:** Provisional, sourced windows may be shown with clear labels. Do not activate calendar-dependent agronomic rules or present definitive rankings as validated until relevant calendars are reviewed.
+- **NASA POWER:** Request daily `PRECTOTCORR`, `T2M`, and `T2M_MAX` in UTC and evaluate all three indicators. Use the reliable two if an indicator fails response metadata/coverage checks; document the reason. Exact metadata at selected points still needs validation.
+- **Agronomic rules:** Data-integrity checks can be enforced. Repeated-crop/family bans, nitrogen credits, disease breaks, and crop-specific water/soil thresholds remain inactive or explicitly provisional until locally reviewed.
+- **Comparison:** Use the PRD's four criteria, equal 25% default weights with simple farmer adjustment, qualitative ratings, and equal-versus-selected-weight sensitivity explanation. Show partial evidence but withhold an overall rank when evidence is missing or incomparable.
+- **Data lifecycle:** Refresh recent NASA windows after the documented publication latency, reuse older matching snapshots absent an explicit refresh/correction, preserve cached data on refresh failure, and show its period/retrieval status.
+- **Validation status:** Reviewer engagement is deferred. Proceed on desk research with pilot-specific agronomic assumptions visibly provisional and subject to future review; do not describe them as locally validated.
 
-No Jira issues or comments were modified. Jira currently shows NY-12 through NY-16 as **In Progress**. NY-16's research comment says it should remain To Do pending approvals, so that ticket's status conflicts with its own comment.
+No Jira issues or comments were modified. Jira showed NY-12 through NY-16 as **In Progress** at the 29 October review. NY-16's comment requests To Do until Product Owner approval and upstream validation; Product Owner decisions are now approved, while upstream validation remains outstanding. Reconcile the ticket status/comment with the Jira owner separately.
 
 ## 2. Consolidated Research Findings
 
@@ -69,7 +70,7 @@ Season dates must come from a locally reviewed crop/community calendar, not arbi
 
 Spatially, POWER is gridded/reanalysis data. It is not a farm station, plot-level rainfall, or soil moisture measurement. Native resolution varies by parameter/source, so preserve variable-specific metadata and avoid advertising one universal grid size. A municipality reference point supports area-level screening only.
 
-**NY-13's remaining acceptance checks:** approve demonstration point(s) and crop-specific windows; confirm indicators' crop relevance; choose minimum coverage and freshness policies; verify exact response units/fill values/source/native resolution at an approved point; and decide user wording for provisional windows and partial coverage.
+**NY-13 follow-up checks:** select and validate the public/community demonstration point(s); verify actual response units/fill values/source/native resolution; document crop relevance for the approved three-indicator set; apply the approved missing/incomparable-evidence policy; and use the approved labels for provisional windows and partial coverage. These are evidence and implementation checks, not unresolved Product Owner decisions.
 
 ### 2.3 NY-14 — Locally grounded crop library
 
@@ -86,7 +87,7 @@ Spatially, POWER is gridded/reanalysis data. It is not a farm station, plot-leve
 
 The comment defers sorghum/guinea corn (local use needs confirmation), soybean (investment potential is not evidence of common current rotation use), plantain (possible later addition), and generic “beans” (ambiguous without identifying the species). It proposes that crop records include stable ID, local/common/scientific name, variety, family/type, local production evidence, season window and version, sourced traits, residue/fixation facts where supported, labour operations where validated, source/date, confidence, validation status, assumptions, and open questions.
 
-Implementation guidance: seed candidates with evidence statuses such as `unknown`, `not_assessed`, `provisional`, and `locally_validated`; don't fill unknown attributes with guessed categories. A rule needing an unknown trait should return `needs_review` or stay inactive. NY-16 should not reward unverified water/soil benefits. The comment explicitly asks the Product Owner to approve the proposed six-crop substitution before seeding.
+Implementation guidance: seed candidates with evidence statuses such as `unknown`, `not_assessed`, `provisional`, and `locally_validated`; don't fill unknown attributes with guessed categories. A rule needing an unknown trait should return `needs_review` or stay inactive. NY-16 should not reward unverified water/soil benefits. The comment asked the Product Owner to approve the six-crop substitution; that approval is now recorded as Decision 2 in §6.
 
 ### 2.4 NY-15 — Conservative rotation rule specification
 
@@ -125,7 +126,7 @@ The proposed evaluation sequence is: validate farm/plot/crop/calendar/history; a
 
 The comment proposes High/Moderate/Low/Not assessed qualitative ratings, with confidence recorded separately. Optional ordinal values (`3/2/1`) may order categories, but the UI should show categories, not imply measurable intervals; `Not assessed` is null, not zero. A 25/25/25/25 profile is suggested only as a neutral placeholder, not a research-derived optimum. Farmer-entered 100 importance points could be normalized to weights; a non-negotiable preference should become a hard constraint only after the condition and evidence are confirmed.
 
-Missing ratings must not become zero, a midpoint, or an undisclosed redistributed weight. The comment recommends a partial comparison with missing criteria/weights visible, or `insufficient_evidence`, instead of a definitive rank when evidence is missing or incomparable. It asks Product Owner and agronomist to approve minimum evidence coverage.
+Missing ratings must not become zero, a midpoint, or an undisclosed redistributed weight. The comment recommends a partial comparison with missing criteria/weights visible, or `insufficient_evidence`, instead of a definitive rank when evidence is missing or incomparable. It asks the Product Owner and agronomist to approve minimum evidence coverage; Decision 6 (§6) resolves the product policy as partial comparisons with no overall rank when evidence is missing/incomparable and no invented numeric threshold.
 
 Each option should show sequence, validity, criterion rating/weight/confidence/reason, benefit, trade-off, checked constraints/warnings, missing inputs, assumptions, and default/custom priority provenance. A composite score is conditional on disclosed comparable evidence and method. Recalculate under equal and selected weights; flag sensitivity; make tie-breakers deterministic and present a tie if still equal. Persist rule/scoring versions, timestamp, location/calendar context, sequence, hard-constraint results, criterion inputs/ratings/reasons/confidence, weights, source IDs/dates, NASA state/coverage, assumptions, and sensitivity/tie outcome.
 
@@ -147,7 +148,7 @@ The PRD is version 1.0, dated 15 October 2026, and marked draft for team alignme
 | What claims are prohibited? | Do not present heuristic ratings as measured soil health, guaranteed yield, precise profitability, field-level satellite soil moisture, or an agronomically validated prescription without evidence. | §§2, 4, 7, 8; Appendix A |
 | What minimum field inputs matter? | Location/demo field, soil texture, irrigation access, previous crop(s), and at least one farmer priority. | P0 Field profile; FR-01; §§5, 9 |
 
-The PRD does **not** select the exact pilot location, candidate crop set, season windows, exact two or three indicators, provisional weights, evidence-coverage threshold, cache freshness policy, or expert reviewer. Those remain open in §15 and/or the Jira comments.
+The PRD does **not** select the exact pilot location, candidate crop set, season windows, exact two or three indicators, provisional weights, evidence-coverage threshold, cache freshness policy, or expert reviewer. Those matters were open in the PRD and Jira comments; the current approved direction is recorded in §6. Local validation and exact point/metadata checks remain pending, but they are not unresolved Product Owner choices.
 
 ## 4. Agricultural Research and Recommendations
 
@@ -157,13 +158,13 @@ This section separates source findings from what NovaYield should do with them. 
 
 **Evidence:** Ejura-Sekyedumase's municipal profile reports forest conditions in the south, savanna in the north, and different rainfall patterns. The 2024 municipal budget lists maize, yam, beans, rice, plantain, cassava, and groundnuts as prominent crops; some other district statistics in the older MOFA profile are historical. A 2022 study of 40 farmers across Ejura, Kasei, and Anyinasu reports a 2020 minor-season maize failure involving delayed/short rains and fall armyworm; it is a valuable local risk case, not a universal crop model.
 
-**Recommendation:** Keep Ejura-Sekyedumase provisional until the Product Owner confirms it and extension/farmer evidence supports the chosen communities. Use at least two representative sampling locations to avoid concealing the north–south gradient. Build calendars as crop-, variety-, community-, and season-specific ranges with source/version. The Ghana Meteorological Agency's current seasonal forecasts are useful for seasonal risk communication, but a forecast is not a permanent planting calendar. The Ministry of Food and Agriculture's maize guide itself says planting time varies with agroecology, season, and maturity group and should use local weather information.
+**Approved direction and recommendation:** Use Ejura-Sekyedumase as the provisional pilot and plan at least two representative sampling locations, as recorded in Decision 1 (§6). This is a finalized product direction, not a validated agronomic/geographic conclusion. Build calendars as crop-, variety-, community-, and season-specific ranges with source/version. The Ghana Meteorological Agency's current seasonal forecasts are useful for seasonal risk communication, but a forecast is not a permanent planting calendar. The Ministry of Food and Agriculture's maize guide says planting time varies with agroecology, season, and maturity group and should use local weather information.
 
 **Limits:** Municipal profiles are broad and sometimes rely on older statistics; the maize failure study covers one event and 40 farmers in three communities. Neither gives validated planting windows for every crop/variety. No precise demo point has been approved in NY-12/13.
 
 ### 4.2 Candidate crop library
 
-**Recommendation:** Use the six NY-14 crops as candidate records only if the Product Owner approves the difference from the PRD examples. Validate crop presence, varieties, system, dates, and farmer relevance with the municipal agriculture office and farmers. Keep trait fields unknown until evidenced. For rice, capture upland/rain-fed lowland/irrigated ecology; official Ghana rice strategy material distinguishes these systems. Do not model “rice” as one water requirement.
+**Approved direction and recommendation:** Use the six NY-14 crops as candidate records, as approved in Decision 2 (§6). This does not validate every crop trait or guarantee recommendation eligibility. Validate crop presence, varieties, system, dates, and farmer relevance when local review becomes available. Keep trait fields unknown until evidenced. For rice, capture upland/rain-fed lowland/irrigated ecology; official Ghana rice strategy material distinguishes these systems. Do not model “rice” as one water requirement.
 
 **Legume/rotation evidence:** Ghana field studies show that legumes can fix nitrogen and may improve a following maize crop in particular varieties and management settings, but the effect depends on variety, biomass, residue handling, soil, and input regime. A study in Wenchi in Ghana's forest/savanna transition zone measured variety-dependent fixation and succeeding-maize responses; a separate KNUST cowpea experiment found no significant residual fertilization effect on succeeding maize in its 2014 trials. A Kpong study found maize response differed by legume and residue treatment. These findings support recording variety and residue management, not awarding a universal “legume = soil benefit” score or fixed nitrogen credit.
 
@@ -189,161 +190,87 @@ Use `unknown`/`not_assessed` where evidence is absent. Keep performance rating s
 
 Use the NY-13 Daily Point contract with the approved coordinate(s), inclusive dates, `AG`, JSON, and explicit UTC. NASA POWER's daily API documents that it defaults to local solar time unless `time-standard=UTC` is requested, supports daily time series from 1981 to near real time, and returns each parameter at its original source resolution. NASA reports 2–3 day archive latency for meteorological data. Preserve actual returned units, fill value, source, coverage, and per-parameter resolution; do not present the point response as a station measurement.
 
-Before freezing the DTO, run and archive a real response for a Product Owner-approved public demo/community point, then verify `PRECTOTCORR`, `T2M`, and `T2M_MAX` units, fill values, source products, and resolution. This exact validation cannot be completed from the research comments because no coordinate has been approved.
+Before freezing the DTO, run and archive a real response for a selected public demo/community point consistent with Decision 1, then verify `PRECTOTCORR`, `T2M`, and `T2M_MAX` units, fill values, source products, resolution, and coverage. The decision to use the three indicators is final; whether each passes metadata and coverage checks remains to be established from an actual response.
 
 ### 5.2 Snapshot identity and refresh
 
 NY-13's reuse dimensions are appropriate for avoiding unnecessary external calls: provider/service, normalized parameter set, normalized location/grid identity, time standard, inclusive date range, units, adapter/schema version. Keep crop/season context associated with the use of a shared weather snapshot, not as a reason to duplicate an equivalent environmental response. Keep raw farm coordinates access-controlled and out of public diagnostics.
 
-NASA documents 2–3 day meteorological archive latency, not a universal immutable-history guarantee. Recommended implementation policy: make freshness source-specific; treat the most recent latency window as potentially incomplete and refresh it after the provider's expected publication delay; do not impose an unexplained recurring TTL on older historical windows. Retain retrieval time and let an explicit refresh or documented source correction policy refresh older windows. If refresh fails, keep the valid prior snapshot and label it cached with its period and retrieval date. Confirm the precise policy with the Product Owner because freshness, API traffic, and user messaging trade off.
+NASA documents 2–3 day meteorological archive latency, not a universal immutable-history guarantee. The approved policy (Decision 8, §6) is source-specific freshness: treat the recent latency window as potentially incomplete and refresh it after the expected publication delay; do not impose an unexplained recurring TTL on older historical windows. Retain retrieval time and allow an explicit refresh or documented source-correction policy to refresh older windows. If refresh fails, keep the valid prior snapshot and label it cached with its period and retrieval date.
 
 ### 5.3 Missingness, sample data, and ranking
 
-Keep missing values `null`/unavailable, preserve coverage counts, and do not impute or treat missing as zero. Do not silently redistribute criterion weights. The NY-16 suggestion to show a partial comparison or `insufficient_evidence` is safer than a definitive total when comparable evidence is absent. The numerical coverage threshold remains a product/agronomy decision; no evidence in NY-12–16 supports a particular percentage.
+Keep missing values `null`/unavailable, preserve coverage counts, and do not impute or treat missing as zero. Do not silently redistribute criterion weights. The finalized policy (Decision 6, §6) is to show partial per-criterion comparisons but withhold the overall rank when evidence is missing or incomparable. No numeric coverage threshold is approved or needed for this policy; do not invent one.
 
-The PRD and NY-13 distinguish live, cached, and sample/demo data. In the current backend source, `DataStatus` in `backend/app/services/environmental_snapshots.py` and `IndicatorDataStatus` in `backend/app/indicators/environmental.py` contain `live`, `cached`, and `unavailable`, but not a separate `sample` state. Before exposing demo fixtures, decide whether `sample` becomes a distinct state or whether the persisted object carries a clear demo provenance field. Do not let “stored in Mongo” imply “live observation.”
+The PRD and NY-13 distinguish live, cached, and sample/demo data. In the reviewed backend source, `DataStatus` in `backend/app/services/environmental_snapshots.py` and `IndicatorDataStatus` in `backend/app/indicators/environmental.py` contain `live`, `cached`, and `unavailable`, but not a separate `sample` state. **Technical recommendation:** represent sample/demo data with an explicit distinct `sample` status (or an equally unambiguous provenance field across the shared DTOs) before exposing fixtures; align the snapshot and indicator contracts so sample data cannot be mistaken for cached live-derived data. Do not let “stored in Mongo” imply “live observation.”
 
 ### 5.4 Transparent MCDA and audit trail
 
 Implement hard validity gates separately from ranking. Preserve per-criterion inputs, units, evidence/provenance, validation status, rating, confidence, rationale, weight profile, missing-data reason, ruleset/scoring versions, source IDs, NASA data state/coverage, and tie/sensitivity result. The OECD/JRC composite-indicator handbook emphasizes that weighting, aggregation, missing-data treatment, normalization, and sensitivity analysis affect results and should be assessed transparently. That supports NY-16's sensitivity and audit recommendations; it does **not** validate NovaYield's particular equal weights or crop ratings.
 
-Prefer user-readable qualitative ratings for the MVP unless the Product Owner approves a numeric method and it is defined and disclosed. If ranking changes under plausible weights, label it weight-sensitive. If options remain tied after disclosed tie-breakers, show a tie rather than manufacturing a winner.
+Use user-readable qualitative ratings for the MVP as approved in Decision 7 (§6). If ranking changes under the equal and farmer-selected weights, label it weight-sensitive. If options remain tied after disclosed tie-breakers, show a tie rather than manufacturing a winner.
 
-## 6. Product Owner Decisions Required
+## 6. Finalized Product Decisions and Provisional Assumptions
 
-These choices are not settled by the PRD or external research. Recommendations are advice, not decisions made on the Product Owner's behalf.
+The Product Owner approved the recommended direction for all nine questions on 29 October 2026. **No Product Owner decision from this review remains open.** The decisions below are the baseline for future NovaYield implementation, Jira planning, and documentation unless the Product Owner explicitly revises them or new evidence justifies revisiting an assumption.
 
-### PO-1. Confirm pilot geography and demo location(s)
+Approval of a product direction does not convert desk research into local agronomic validation. Status labels below distinguish decisions that are final for the MVP from location- and agronomy-dependent facts that remain provisional.
 
-**Question:** Should NovaYield use Ejura-Sekyedumase Municipality as the first pilot, and which public/community reference point(s) should the demonstration use?
+| ID | Finalized direction | Status |
+| --- | --- | --- |
+| 1 | Use Ejura-Sekyedumase Municipality, Ashanti Region, as the first pilot; use at least two representative public/community reference points selected with extension input. | Pilot choice is finalized; exact points and local evidence remain provisional pending selection/validation. |
+| 2 | Start with maize, cowpea, groundnut, cassava, yam, and rice as candidate crop records. | Crop list is finalized; unverified crop traits and eligibility remain provisional. |
+| 3 | Allow sourced, clearly labelled provisional crop/community season windows; do not activate dependent agronomic rules or describe definitive rankings as locally validated until review. | Product behavior is finalized; local calendar contents remain provisional. |
+| 4 | Evaluate seasonal precipitation total, mean daily `T2M`, and mean daily `T2M_MAX`; expose all three when metadata and coverage checks pass, otherwise use the reliable two and document the exclusion. | Indicator policy is finalized; live metadata/coverage validation remains required. |
+| 5 | Use equal 25% criterion weights by default and provide simple, visible farmer priority adjustment; disclose that weights are provisional. | Product policy is finalized; precise UI control details are implementation work. |
+| 6 | Show available per-criterion comparisons, but withhold an overall rank when evidence is missing or incomparable; do not invent a numeric evidence threshold. | Finalized. |
+| 7 | Use qualitative ratings initially; explain equal-weight versus farmer-selected results, flag weight-sensitive rankings, and do not add presets in the initial MVP. | Finalized. |
+| 8 | Refresh recent NASA data after the expected source publication latency; reuse older matching historical snapshots unless explicitly refreshed or covered by a documented correction; preserve valid cache on refresh failure and show provenance/freshness. | Finalized. |
+| 9 | Proceed using desk research because expert review is not expected soon; mark pilot-specific agronomic assumptions and rules provisional and subject to future expert/farmer validation. | Explicitly provisional, pending future review and validation. |
 
-**Context:** NY-12 recommends Ejura-Sekyedumase provisionally and Kintampo South as fallback. The municipality has north–south variation, so one point could be misleading. No coordinates are approved in Jira.
+### Decision 1 — Pilot area and reference locations
 
-**Options and implications:**
+**Finalized decision:** Ejura-Sekyedumase Municipality is NovaYield's first pilot area. Represent its north–south variation with at least two public/community reference points; select the points with extension input. Kintampo South remains a fallback only if new evidence or practical constraints require reconsideration. Do not expose private, precise farm coordinates in public demos or diagnostics without a clear need and permission.
 
-- Approve Ejura-Sekyedumase and select two representative community points: best supports the current evidence while showing within-municipality variation; needs local point validation.
-- Approve Ejura-Sekyedumase but use one named point: simpler demo, weaker coverage of municipality variation.
-- Select Kintampo South or another area: changes crop/season research and requires that area's validation.
-- Defer exact point selection: implementation can use fixture contracts, but real-response validation and local calendar work remain blocked.
+**Provisional elements:** The municipality-level choice is a desk-based recommendation. The exact reference points, their suitability, and the local crop/calendar evidence need future validation. Until then, real API checks should use only approved public/community points and must not imply that a grid point represents every farm in the municipality.
 
-**Recommendation:** Approve Ejura-Sekyedumase provisionally and select at least two representative public/community points with extension input. Do not use precise farm coordinates in a public demo without a clear purpose and permission.
+### Decision 2 — Candidate crop library
 
-### PO-2. Approve the initial six candidate crops
+**Finalized decision:** The initial candidate records are maize, cowpea, groundnut, cassava, yam, and rice. This is the agreed substitution for the PRD's illustrative examples of sorghum and soybean; it does not change the PRD's requirement for four to six locally grounded crops.
 
-**Question:** Should the MVP candidate library be maize, cowpea, groundnut, cassava, yam, and rice, as recommended by NY-14?
+**Provisional elements:** Candidate inclusion is not proof that a crop is suitable for every pilot location, season, variety, or rotation. Keep unsupported traits `unknown`/`not_assessed`; do not infer nitrogen credit, drought tolerance, water need, labor feasibility, or recommendation eligibility from crop names alone. Model rice production system explicitly where used.
 
-**Context:** The PRD requires 4–6 locally evidenced crops but only gives examples. The proposed six replace sorghum and soybean with yam and rice. Local authority and research sources support crop presence, but not all six crops' rule traits.
+### Decision 3 — Unvalidated season windows
 
-**Options and implications:**
+**Finalized decision:** The demo may show crop/community season windows from available sources when each is visibly labelled provisional and carries source/date/context. Calendar-dependent agronomic rules must remain inactive or return `needs_review` until the relevant local calendar has been reviewed. A definitive validated ranking must not be presented when required calendar evidence is provisional.
 
-- Approve NY-14's six as *candidate records*: aligns with local crop evidence while preserving provisional traits.
-- Keep the PRD example list: simpler continuity, but soybean/sorghum local use still needs support and yam/rice evidence is omitted.
-- Wait for extension/farmer review before locking six: strongest local validation, but delays library seeding and scoring integration.
+### Decision 4 — NASA POWER indicators
 
-**Recommendation:** Approve the six as candidate library entries only; do not equate inclusion with validated trait values or automatic recommendation eligibility.
+**Finalized decision:** The indicator set is seasonal precipitation total from valid daily `PRECTOTCORR`, arithmetic mean daily `T2M`, and arithmetic mean daily `T2M_MAX`. Verify units, fill values, source, resolution, and coverage against actual NASA POWER metadata at the selected reference locations. If all three pass, expose all three with distinct plain-language definitions. If one fails, expose the reliable two and record why; never fabricate a value or substitute silently. If fewer than two pass, report the indicators as unavailable/insufficient rather than claiming the PRD's minimum has been met.
 
-### PO-3. Decide how the MVP handles unvalidated local season windows
+### Decision 5 — Default weights and farmer priorities
 
-**Question:** May the demo show provisional crop/community date windows, or should it withhold ranking until the local calendar is reviewed?
+**Finalized decision:** Begin with four equal weights of 25% across water resilience, soil-health potential, yield-stability proxy, and labor feasibility. Let farmers adjust relative priorities through a simple visible control whose values are normalized transparently; show the resulting weights. These are provisional product defaults, not scientifically validated optimum weights. A farmer's non-negotiable condition is a hard constraint only when it is explicitly captured and its rule is evidence-backed.
 
-**Context:** The PRD requires a documented local calendar. NY-12/13 say calendars vary and must be validated. A provisional window can demonstrate data flow but may be mistaken for planting advice.
+### Decision 6 — Minimum evidence for an overall rank
 
-**Options and implications:**
+**Finalized decision:** Preserve and show partial per-criterion comparisons when useful. Withhold the overall rank whenever evidence is missing or incomparable; explain what is missing. Do not convert missing values to zero or neutral, redistribute weights silently, or invent a numeric coverage threshold. A rank may be produced only when the compared options have sufficient comparable evidence under this rule.
 
-- Show windows marked “provisional,” with source/date and no rule depending on them treated as validated: keeps the workflow demonstrable while making uncertainty explicit.
-- Block generation/ranking until extension/farmer approval: safest interpretation, but limits the demo until validation is available.
-- Use a broad municipality-wide season: quickest, but risks masking different systems and should not activate crop-specific hard rules.
+### Decision 7 — Rating presentation and sensitivity
 
-**Recommendation:** Show provisional context only when clearly labelled, and keep crop/calendar-dependent rules and definitive ranking inactive until validated.
+**Finalized decision:** Use qualitative ratings (for example, High/Moderate/Low) with a visible criterion-level explanation rather than unsupported precision. Explain the equal-weight outcome alongside the farmer-selected profile and flag a ranking that changes under those weights as weight-sensitive. Do not add preset weight profiles to the initial MVP. If tied after disclosed deterministic handling, display a tie rather than manufacture a winner.
 
-### PO-4. Choose the displayed NASA indicator set
+### Decision 8 — NASA snapshot refresh and freshness
 
-**Question:** Should the MVP display two indicators or all three NY-13 candidates (seasonal precipitation total, mean T2M, and mean T2M_MAX)?
+**Finalized decision:** Use source-specific freshness. Treat the recent meteorological publication window as potentially incomplete and refresh it after NASA's documented expected latency (currently documented as 2–3 days). Reuse older snapshots with the same request identity unless the user/system requests a refresh or NASA's documented correction behavior requires one. If refresh fails, retain and return a valid prior snapshot clearly marked cached with its period and retrieval time. Do not apply an unexplained fixed TTL to every historical request.
 
-**Context:** PRD §4/FR-03 requires at least two and §15 asks which two or three are reliable. NY-13 proposes three; response metadata still needs confirmation.
+### Decision 9 — Expert review and provisional assumptions
 
-**Options and implications:**
-
-- Display all three after live metadata checks: richer temperature context and one shared data request; requires clear distinction between mean daily temperature and mean daily maximum.
-- Display two (rainfall and mean T2M): simpler UI; leaves T2M_MAX out of comparison.
-- Display two initially, retain T2M_MAX as an internal candidate: lower demo complexity, but requires later product review to expose it.
-
-**Recommendation:** Use all three if the approved-location response confirms units/coverage and the UI can explain them plainly; otherwise launch with the reliable two and document why.
-
-### PO-5. Approve the default weights and farmer-priority interaction
-
-**Question:** Should equal 25% weights be the disclosed default, and how should farmers change priorities?
-
-**Context:** The PRD requires priorities to affect weights but does not prescribe equal weights or an input control. NY-16's 25/25/25/25 is explicitly a placeholder, not an agronomic optimum.
-
-**Options and implications:**
-
-- Equal 25% default plus 100 importance points/sliders: simple starting point with meaningful farmer influence; needs explanation and a saved weight profile.
-- Product-defined default weights: can reflect a project emphasis, but are still assumptions and require justification/visibility.
-- Discrete priority choices that map transparently to normalized weights: potentially easier on mobile, but mapping must be shown and tested.
-
-**Recommendation:** Equal default is the least opinionated starting point; allow a simple, visible farmer adjustment and label all weights provisional. Treat “non-negotiable” preferences as hard constraints only after the farmer condition and rule evidence are confirmed.
-
-### PO-6. Set the minimum evidence rule for an overall rank
-
-**Question:** When ratings are missing or incomparable, should NovaYield show a partial comparison, or withhold an overall ranking? What evidence coverage is enough?
-
-**Context:** Neither NY-13 nor NY-16 supplies a validated coverage threshold. Missing criteria cannot safely become zero or a midpoint.
-
-**Options and implications:**
-
-- Require comparable evidence on all four criteria for every option before an overall rank: strongest guard against false comparison, but likely to yield `insufficient_evidence` frequently at first.
-- Show per-criterion comparison and withhold only the total when a criterion is missing/incomparable: preserves useful information without claiming a definitive winner.
-- Approve a minimum number/percentage of assessed criteria: permits more ranks but creates a policy threshold requiring agronomy/product justification.
-
-**Recommendation:** Show partial criterion comparisons; withhold definitive overall ranking where evidence is missing or not comparable. Do not set a numeric threshold until the agronomist/product review identifies a defensible rule.
-
-### PO-7. Decide rating presentation and sensitivity scenarios
-
-**Question:** Should the MVP use qualitative High/Moderate/Low ratings or numeric criterion scores, and how many alternative weight profiles should users see?
-
-**Context:** PRD allows either visible component scores or Low/Medium/High, while warning against false precision. NY-16 asks for sensitivity and an explicit number of comparison profiles.
-
-**Options and implications:**
-
-- Qualitative labels plus criterion breakdown and equal-vs-farmer-weight sensitivity: explainable, though evidence categories need review criteria.
-- Numeric ordinal scores with published mapping: easier to sort, but can imply more precision than evidence supports.
-- Offer several weight presets: may help exploration but adds UI and validation scope.
-
-**Recommendation:** Use qualitative ratings in the initial demo. At minimum, explain the equal-weight result versus the farmer-selected profile; flag any rank change as weight-sensitive. Do not add preset profiles until user testing shows a need.
-
-### PO-8. Approve recent-data refresh and freshness messaging
-
-**Question:** Should NovaYield refresh near-real-time POWER requests after NASA's documented meteorological latency, and how should older historical snapshots be refreshed?
-
-**Context:** NASA reports 2–3 day latency for meteorological data but does not provide a universal immutability guarantee for historical series. NY-13 leaves freshness policy open; current snapshot policy has no default refresh interval.
-
-**Options and implications:**
-
-- Source-specific refresh for recent windows after the expected latency; no arbitrary TTL for older history, with explicit refresh available: balances currentness and API reuse.
-- Refresh every request: most current when available, but defeats reuse and can create redundant upstream calls.
-- Fixed TTL for every request: simple but unsupported by the cited source cadence and can trigger unnecessary refreshes.
-
-**Recommendation:** Prefer source-specific handling: refresh recent windows after the documented delay; reuse older exact-identity historical snapshots unless a documented correction policy or explicit refresh applies. Always preserve a valid cached copy if refresh fails, and show period/retrieval date/status.
-
-### PO-9. Secure an agronomy/extension reviewer
-
-**Question:** Can the Product Owner arrange a municipal extension officer, agronomist, or knowledgeable local advisor to review the crop list, calendar, and rule assumptions?
-
-**Context:** The PRD identifies the absence of a dedicated agronomist/GIS specialist as a validation risk and asks for an advisor if possible. NY-12/14/15 depend on local confirmation.
-
-**Options and implications:**
-
-- Arrange review before activating crop/calendar rules: strongest validation path; needs stakeholder time.
-- Proceed with desk research only: lets prototype work continue, but all agronomic rules must remain explicitly provisional and claims limited.
-- Validate only the pilot/crops used in the demo: narrows effort but leaves other candidate records inactive.
-
-**Recommendation:** Seek review for the chosen pilot, initial crop records, major/minor calendar, rice water system, residue practices, and any proposed hard rule. If unavailable, keep the limitations visible and do not call the rules validated.
-
+**Provisional decision:** Expert review is deferred because it is not expected soon. Continue on desk research, but mark pilot-specific assumptions and rules as provisional until an agronomist, extension officer, knowledgeable local advisor, or relevant farmers can review them. Keep crop/calendar-dependent hard exclusions, nitrogen credits, disease break intervals, and crop-specific water/soil thresholds inactive unless their evidence is sufficiently specific and validated. This is a temporary evidence status, not a permanent waiver of validation; update the research record when review occurs.
 ## 7. Implementation Implications
 
-1. **Phase 0 — decisions and validation:** Confirm pilot geography/points, crop set, indicator set, local season source/version, and whether an advisor can review the assumptions. Keep those decisions in a versioned research record.
-2. **Phase 1 — data contract:** Request `PRECTOTCORR`, `T2M`, and `T2M_MAX` in UTC from the approved point; verify actual metadata; keep raw values, fill/missingness, source, units, resolution, period, and retrieval provenance together. Keep any sample/demo dataset distinguishable from live-derived cache.
+1. **Phase 0 — approved direction and validation:** Use the finalized pilot/crop/indicator/ranking decisions in §6. Select the public/community reference points and gather local calendar evidence. Expert review is deferred; mark pilot-specific agronomic assumptions provisional until review becomes available.
+2. **Phase 1 — data contract:** Request `PRECTOTCORR`, `T2M`, and `T2M_MAX` in UTC from selected public/community point(s); verify actual metadata; keep raw values, fill/missingness, source, units, resolution, period, and retrieval provenance together. Keep any sample/demo dataset explicitly distinguishable from live-derived cache.
 3. **Phase 2 — crop/plot model:** Store candidate crops with evidence/validation states. Represent planting events by plot and locally defined season, not calendar year. Record system-specific information such as rice ecology and residue handling when required by a rule.
 4. **Phase 3 — rules:** Implement data-integrity gates and `needs_review` behavior first. Keep provisional agronomic rules as warnings/research notes; only approved, scoped rules may exclude a sequence.
 5. **Phase 4 — scoring:** Apply hard constraints before ranking. Preserve four criteria from PRD FR-06. Carry missingness as `not_assessed`, not zero; preserve confidence separately from rating. Save weights, criteria explanations, rule version, and data state. Do not rank if the approved evidence policy says comparability is insufficient.
@@ -352,7 +279,7 @@ These choices are not settled by the PRD or external research. Recommendations a
 
 **Research-ticket dependencies in Jira:** NY-12 blocks NY-14 and NY-15; NY-13 blocks NY-5, NY-6, NY-7, and NY-16; NY-14/NY-15 also block NY-16 and the implementation/handoff tickets shown on Jira. The intended flow is therefore pilot/context → crop and rule research (with NASA data specification progressing in parallel) → comparison/scoring framework → implementation handoff. Avoid treating the Jira link graph as evidence that research has been field-validated.
 
-**Tracking note:** All five Jira issues currently display In Progress. NY-16's comment specifically requests To Do until the Product Owner approves weights/evidence and upstream NY-13/14/15 validation; this mismatch should be reconciled by the team separately. This review did not edit Jira.
+**Tracking note:** At the 29 October 2026 Jira review, all five issues displayed In Progress. NY-16's comment asks for To Do until Product Owner approval and upstream validation. Product Owner decisions 1–9 have since been approved; local validation remains outstanding, so the comment's validation concern may still apply. Reconcile the status/comment with the Jira owner separately. This document update did not edit Jira.
 
 ## 8. References
 

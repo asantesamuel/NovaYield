@@ -32,6 +32,8 @@ Copy-Item .env.example .env
 
 The default settings expect MongoDB at `mongodb://localhost:27017` and use the `nova_yield` database. Start a local MongoDB service or set `NOVAYIELD_MONGODB_URI` and `NOVAYIELD_MONGODB_DATABASE_NAME` in `backend/.env` to point to an existing development database. Never put a production URI or credentials in `.env.example` or commit a real `.env` file.
 
+Authentication uses a one-hour database-backed session by default. The `.env.example` sets `NOVAYIELD_AUTH_COOKIE_SECURE=false` for local HTTP development. Set it to `true` when serving the API over HTTPS; the session cookie remains HttpOnly and SameSite=Lax.
+
 If using Docker Desktop for a disposable local database, start its engine and run:
 
 ```powershell

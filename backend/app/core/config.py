@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     mongodb_uri: SecretStr = SecretStr("mongodb://localhost:27017")
     mongodb_database_name: str = "nova_yield"
     mongodb_server_selection_timeout_ms: int = Field(default=2_000, gt=0)
+    auth_session_lifetime_seconds: int = Field(default=3_600, gt=0)
+    auth_cookie_secure: bool = True
 
     @field_validator("api_v1_prefix")
     @classmethod

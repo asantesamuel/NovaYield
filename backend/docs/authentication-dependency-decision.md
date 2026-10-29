@@ -32,6 +32,14 @@ The adapter package declares `fastapi-users >=15.0.1` and `beanie >=2.0.0`, so t
 - The database access-token document stores the session lookup token, an ObjectId user reference, and `created_at`; its adapter queries by token and age and deletes the record on revocation. Treat the token as sensitive session material: do not log it or expose these documents through user-facing schemas, and keep database access restricted.
 - FastAPI Users is in maintenance mode. Its maintainers state that security and dependency updates continue, but new features do not. Recheck supported versions and security advisories when dependencies are upgraded.
 
+## NY-11 wiring defaults
+
+- `NOVAYIELD_AUTH_SESSION_LIFETIME_SECONDS` defaults to `3600` and is used by both the browser cookie and the database-backed token strategy. The server checks the token's creation time on use; expired records are not accepted.
+- `NOVAYIELD_AUTH_COOKIE_SECURE` defaults to `true`. The local `.env.example` sets it to `false` for plain-HTTP development at localhost. Set it to `true` for HTTPS deployments.
+- The cookie name is `nova_yield_session`; it is `HttpOnly` and `SameSite=Lax`.
+- UserManager password creation is explicitly configured with `pwdlib`'s Argon2 hasher. No reset-password or email-verification routes are configured by this wiring.
+- The database adapters wrap feature-owned Beanie document classes. They do not create Mongo clients; Beanie uses the app's initialized shared Mongo connection.
+
 ## Sources
 
 - [FastAPI Users 15.0.5 on PyPI](https://pypi.org/project/fastapi-users/15.0.5/)

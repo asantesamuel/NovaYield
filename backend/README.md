@@ -34,6 +34,18 @@ The default settings expect MongoDB at `mongodb://localhost:27017` and use the `
 
 Authentication uses a one-hour database-backed session by default. The `.env.example` sets `NOVAYIELD_AUTH_COOKIE_SECURE=false` for local HTTP development. Set it to `true` when serving the API over HTTPS; the session cookie remains HttpOnly and SameSite=Lax.
 
+The API requires a private signing key for its signed CSRF double-submit cookie. Generate one with:
+
+```powershell
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+Copy the generated value into `backend/.env` as `NOVAYIELD_CSRF_SECRET=<generated-value>`. Keep `.env` private and out of Git; the example file contains only a commented placeholder.
+
+The browser should first call `GET /api/v1/auth/csrf` with credentials enabled, read the `nova_yield_csrf` cookie, and send its value in the `X-CSRF-Token` header on registration, login, logout, and other authenticated state-changing requests. If the frontend and API are sibling subdomains, configure `NOVAYIELD_CSRF_COOKIE_DOMAIN` to their shared parent domain so frontend JavaScript can read the CSRF cookie. Keep it unset for localhost. Both registration and login accept JSON with `email` and `password`; email is normalized to lowercase. Postman should use **Body → raw → JSON** for both requests.
+
+Authentication endpoints are `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `POST /api/v1/auth/logout`, and authenticated `GET /api/v1/auth/me`. The `/me` response contains only the user's public ID and email.
+
 If using Docker Desktop for a disposable local database, start its engine and run:
 
 ```powershell

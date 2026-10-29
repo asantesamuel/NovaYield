@@ -24,7 +24,7 @@ The adapter package declares `fastapi-users >=15.0.1` and `beanie >=2.0.0`, so t
 - Added an optional integration test that initializes the probe documents through the application's shared `MongoConnection`, then creates and reads a user and access token. It runs when `NOVAYIELD_TEST_MONGODB_URI` is configured.
 - No local MongoDB service is listening at `localhost:27017` in this environment, so the real MongoDB integration test is not currently runnable here.
 
-## Important implementation notes for the next NY-11 subtasks
+## Implementation notes
 
 - The current FastAPI Users Beanie documentation still shows Motor. A FastAPI Users issue confirms that this example is outdated for current PyMongo Async installations. Do not copy its client setup: keep using NovaYield's shared `MongoConnection` and let Beanie own document operations.
 - The Beanie adapter's base user document includes `is_active`, `is_superuser`, and `is_verified` fields. NY-11 must not expose superuser behavior or add verification flows; keep the agreed API surface limited to email/password account access and the current-user dependency.
@@ -40,6 +40,16 @@ The adapter package declares `fastapi-users >=15.0.1` and `beanie >=2.0.0`, so t
 - UserManager password creation is explicitly configured with `pwdlib`'s Argon2 hasher. No reset-password or email-verification routes are configured by this wiring.
 - The database adapters wrap feature-owned Beanie document classes. They do not create Mongo clients; Beanie uses the app's initialized shared Mongo connection.
 
+## NY-11 routes and browser CSRF
+
+- Registration, login, logout, and current identity are exposed under `/api/v1/auth`. Registration accepts only email and password; the response contains only public ID and normalized email. The library's active-user dependency is returned by the app's auth component for reuse by protected feature routers.
+- Registration and login both accept JSON with `email` and `password`. Registration uses FastAPI Users' user manager to create the account. A NovaYield-owned login route passes the email/password pair to FastAPI Users' existing credential verifier, then uses the selected cookie backend and database strategy to issue and persist the session token. Logout uses the same backend to revoke the token and clear the cookie. The library's generated login route requires an OAuth2-style form field named `username`; NovaYield deliberately does not expose that form contract because the Product Owner chose a consistent JSON `email` contract for both endpoints.
+- Registration uses FastAPI Users' UserManager create operation but maps duplicate-email, invalid-password, and unique-index race failures to the same generic response so registration errors do not name an existing email. Login uses the library's generic bad-credentials response for both unknown email and wrong password.
+- New passwords must contain 8–128 characters. This is an implementation validation choice for the MVP; it can be revised if product policy changes. The secret request type masks the password in representations, and public response schemas exclude password hashes and internal account flags.
+- The pinned `starlette-csrf==3.0.0` middleware signs a double-submit CSRF cookie and compares it with the `X-CSRF-Token` header. Login, registration, and logout are always checked, including login before a session exists; other unsafe requests are checked when the NovaYield session cookie is present. A safe `GET /auth/csrf` initializes the readable CSRF cookie. The PyPI release is older than this codebase, so review its maintenance and compatibility before a production dependency upgrade.
+- The CSRF signing key is required through `NOVAYIELD_CSRF_SECRET` in every environment. The test suite creates a process-local key without committing one. Developers should generate a stable private local value and put it in ignored `backend/.env`; deployments must provide a stable private value through their secret manager. Optional `NOVAYIELD_CSRF_COOKIE_DOMAIN` supports sibling frontend/API subdomains; leave it unset on localhost.
+- CORS remains credentialed and restricted to configured frontend origins. The CSRF cookie uses HttpOnly=false so frontend code can read its token; the session cookie remains HttpOnly. Both use SameSite=Lax, and Secure follows the configured HTTPS cookie setting.
+
 ## Sources
 
 - [FastAPI Users 15.0.5 on PyPI](https://pypi.org/project/fastapi-users/15.0.5/)
@@ -50,3 +60,5 @@ The adapter package declares `fastapi-users >=15.0.1` and `beanie >=2.0.0`, so t
 - [FastAPI Users issue documenting the outdated Motor example](https://github.com/fastapi-users/fastapi-users/issues/1559)
 - [Beanie initialization guide](https://beanie-odm.dev/tutorial/initialization/)
 - [pwdlib project](https://github.com/frankie567/pwdlib)
+- [Starlette CSRF middleware documentation](https://github.com/frankie567/starlette-csrf)
+- [Starlette CSRF 3.0.0 release on PyPI](https://pypi.org/project/starlette-csrf/3.0.0/)

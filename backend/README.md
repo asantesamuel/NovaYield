@@ -46,6 +46,8 @@ The browser should first call `GET /api/v1/auth/csrf` with credentials enabled, 
 
 Authentication endpoints are `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `POST /api/v1/auth/logout`, and authenticated `GET /api/v1/auth/me`. The `/me` response contains only the user's public ID and email.
 
+See [the authentication guide](docs/authentication.md) for request bodies, CSRF and cookie handling, Postman setup, and local configuration.
+
 If using Docker Desktop for a disposable local database, start its engine and run:
 
 ```powershell

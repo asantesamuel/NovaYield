@@ -77,9 +77,7 @@ class UserManager(BaseUserManager[User, PydanticObjectId]):
         """Enforce a modest password length range before hashing or storage."""
 
         if not 8 <= len(password) <= 128:
-            raise InvalidPasswordException(
-                reason="Password must be between 8 and 128 characters."
-            )
+            raise InvalidPasswordException(reason="Password must be between 8 and 128 characters.")
 
 
 def get_user_manager(

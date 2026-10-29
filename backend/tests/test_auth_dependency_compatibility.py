@@ -2,11 +2,13 @@
 
 import asyncio
 import os
+from datetime import timedelta
 from inspect import signature
 from uuid import uuid4
 
 import pytest
 from beanie import Document
+from fastapi_users.authentication.strategy.db import DatabaseStrategy
 from fastapi_users_db_beanie import BeanieBaseUserDocument, BeanieUserDatabase
 from fastapi_users_db_beanie.access_token import (
     BeanieAccessTokenDatabase,
@@ -18,6 +20,7 @@ from pymongo import AsyncMongoClient
 
 from app.core.config import Settings
 from app.database.connection import MongoConnection
+from app.services.authentication import UserManager
 
 
 class AdapterProbeUser(BeanieBaseUserDocument):
@@ -76,7 +79,6 @@ def test_auth_adapters_persist_through_shared_beanie_connection_in_mongodb() -> 
         )
         connected = False
         user = None
-        token = None
         user_database = BeanieUserDatabase(AdapterProbeUser)
         token_database = BeanieAccessTokenDatabase(AdapterProbeAccessToken)
 
@@ -90,20 +92,29 @@ def test_auth_adapters_persist_through_shared_beanie_connection_in_mongodb() -> 
                     "hashed_password": "not-a-real-password-hash",
                 }
             )
-            token = await token_database.create({"token": uuid4().hex, "user_id": user.id})
-
+            strategy = DatabaseStrategy(token_database, lifetime_seconds=60)
+            user_manager = UserManager(user_database)
+            session_token = await strategy.write_token(user)
             stored_user = await user_database.get(user.id)
-            stored_token = await token_database.get_by_token(token.token)
+            stored_token = await token_database.get_by_token(session_token)
+            authenticated_user = await strategy.read_token(session_token, user_manager)
 
             assert stored_user is not None
             assert stored_user.id == user.id
             assert stored_token is not None
             assert stored_token.user_id == user.id
+            assert authenticated_user is not None
+            assert authenticated_user.id == user.id
+
+            stored_token.created_at = stored_token.created_at - timedelta(seconds=120)
+            await stored_token.save()
+            assert await strategy.read_token(session_token, user_manager) is None
+
+            await strategy.destroy_token(session_token, user)
+            assert await token_database.get_by_token(session_token) is None
         finally:
             try:
                 if connected:
-                    if token is not None:
-                        await token_database.delete(token)
                     if user is not None:
                         await user_database.delete(user)
                     await connection.client.drop_database(database_name)

@@ -307,6 +307,41 @@ def test_logout_revokes_database_token_and_clears_cookie(auth_client: Any) -> No
     assert client.get("/api/v1/auth/me").status_code == 401
 
 
+def test_auth_responses_and_logs_do_not_expose_password_or_session_token(
+    auth_client: Any,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    client, _users, _tokens, _app = auth_client
+    password = f"private-test-password-{token_urlsafe(12)}"
+    email = "log-check@example.com"
+    caplog.set_level("DEBUG")
+
+    registration = client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": password},
+        headers=csrf_headers(client),
+    )
+    login = client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": password},
+        headers=csrf_headers(client),
+    )
+    session_token = client.cookies.get(AUTH_COOKIE_NAME)
+    identity = client.get("/api/v1/auth/me")
+    logout = client.post("/api/v1/auth/logout", headers=csrf_headers(client))
+
+    assert registration.status_code == 201
+    assert login.status_code == 204
+    assert session_token is not None
+    assert identity.status_code == 200
+    assert logout.status_code == 204
+    for response in (registration, login, identity, logout):
+        assert password not in response.text
+        assert session_token not in response.text
+    assert password not in caplog.text
+    assert session_token not in caplog.text
+
+
 def test_csrf_is_required_for_login_even_before_a_session_exists(auth_client: Any) -> None:
     client, _users, _tokens, _app = auth_client
 

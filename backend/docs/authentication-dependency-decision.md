@@ -21,8 +21,8 @@ The adapter package declares `fastapi-users >=15.0.1` and `beanie >=2.0.0`, so t
 - Installed and imported the selected packages in the ignored `backend/.venv`.
 - Verified that `BeanieUserDatabase` accepts a Beanie user document class and `BeanieAccessTokenDatabase` accepts a Beanie access-token document class.
 - Verified that `pwdlib` can create and verify an Argon2id hash.
-- Added an optional integration test that initializes the probe documents through the application's shared `MongoConnection`, then creates and reads a user and access token. It runs when `NOVAYIELD_TEST_MONGODB_URI` is configured.
-- No local MongoDB service is listening at `localhost:27017` in this environment, so the real MongoDB integration test is not currently runnable here.
+- The optional integration test initializes probe documents through the application's shared `MongoConnection`, then exercises user/token persistence, token-to-user lookup, expiry, and revocation. It runs when `NOVAYIELD_TEST_MONGODB_URI` is configured.
+- Real MongoDB checks create a uniquely named disposable database and drop only that database. Use a test MongoDB instance or a local development instance and never point the checks at a database whose contents must be retained.
 
 ## Implementation notes
 

@@ -73,11 +73,7 @@ def create_authentication_components(settings: Settings) -> AuthenticationCompon
         name=f"auth:{backend.name}.logout",
         status_code=status.HTTP_204_NO_CONTENT,
         response_class=Response,
-        responses={
-            status.HTTP_401_UNAUTHORIZED: {
-                "description": "Missing or inactive session."
-            }
-        },
+        responses={status.HTTP_401_UNAUTHORIZED: {"description": "Missing or inactive session."}},
         summary="Log out and revoke the current session",
     )
     async def logout(

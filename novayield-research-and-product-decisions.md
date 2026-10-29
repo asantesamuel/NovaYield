@@ -279,6 +279,8 @@ Approval of a product direction does not convert desk research into local agrono
 
 **Research-ticket dependencies in Jira:** NY-12 blocks NY-14 and NY-15; NY-13 blocks NY-5, NY-6, NY-7, and NY-16; NY-14/NY-15 also block NY-16 and the implementation/handoff tickets shown on Jira. The intended flow is therefore pilot/context → crop and rule research (with NASA data specification progressing in parallel) → comparison/scoring framework → implementation handoff. Avoid treating the Jira link graph as evidence that research has been field-validated.
 
+**NY-8 profile artifact:** [Public-data demo profile candidate](analysis_docs/research/ny-8-public-demo-profile.md) records the source-backed Ejura area archetype, candidate public points, historical analysis windows, and remaining unknowns. It is suitable for evidence-aware and missing-data behavior checks; it is not rank-ready and must not be treated as a verified individual farm or validated recommendation profile.
+
 **Tracking note:** At the 29 October 2026 Jira review, all five issues displayed In Progress. NY-16's comment asks for To Do until Product Owner approval and upstream validation. Product Owner decisions 1–9 have since been approved; local validation remains outstanding, so the comment's validation concern may still apply. Reconcile the status/comment with the Jira owner separately. This document update did not edit Jira.
 
 ## 8. References

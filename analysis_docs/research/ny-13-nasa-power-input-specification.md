@@ -46,7 +46,7 @@ Implementation note: These are candidate POWER parameter names commonly used in 
 - Calculate each indicator using valid daily observations only. Return expected day count, valid day count, missing day count and coverage percentage alongside the value.
 - If no valid values exist, return unavailable, not 0.
 - If coverage is incomplete, show the value with an explicit partial-coverage warning; do not interpolate or impute in P0.
-- Define a product-approved minimum coverage threshold before using an indicator in ranking. Until that threshold is agreed, expose coverage and keep the indicator not_assessed for decision scoring when data are insufficient; do not invent a threshold.
+- Product policy update (29 October 2026): do not invent a numeric coverage threshold. Show partial per-criterion information where useful, but withhold the overall rank whenever evidence is missing or incomparable; see [the approved decision record](../../novayield-research-and-product-decisions.md#decision-6--minimum-evidence-for-an-overall-rank). Never impute missing values or silently redistribute weights.
 - Distinguish live, cached, and sample/demo data in every response. Sample/demo data must never be presented as a live observation.
 - A cached snapshot is reusable only when provider/service, community, normalized location/grid identity, parameter set, time standard, and inclusive date range match. Store retrieval time and source metadata; if no matching snapshot exists and the API is unavailable, return an explicit unavailable state rather than fabricated fallback values.
 - POWER is gridded/reanalysis-derived environmental data. A point request is not an on-farm rain gauge or field thermometer.
@@ -55,14 +55,14 @@ Implementation note: These are candidate POWER parameter names commonly used in 
 - Do not derive soil moisture, soil fertility, crop water requirement, yield, profitability, or a dry-spell/heat-stress diagnosis from these three indicators alone.
 - Dry-spell and heat-stress thresholds are deferred until supported by crop-specific and pilot-specific agronomic evidence (NY-14/NY-15 and local validation).
 provider, service, community, requested_location (access-controlled), returned_grid_or_spatial_metadata, parameters, parameter_metadata, time_standard, start_date, end_date, season_label, calendar_source_version, daily_values, indicator_values, unit, expected_days, valid_days, missing_days, coverage_pct, retrieved_at, source_url, request_identity, data_status (live|cached|sample|unavailable), warnings, schema_version.
-1. NY-12 / local agronomist: approve the demonstration coordinate(s) and crop-specific seasonal windows for Ejura-Sekyedumase.
+1. NY-12 / local agronomist: validate the candidate public/community demonstration point(s) and crop-specific seasonal windows for Ejura-Sekyedumase.
 2. NY-14 / agronomy review: confirm which indicators are useful for each shortlisted crop and whether any additional crop-specific parameter is genuinely needed.
-3. Product/backend: set a minimum coverage policy and cache freshness policy; neither is supplied by the research evidence in this ticket.
+3. Product/backend: implement the approved no-numeric-threshold missing-evidence policy and source-specific snapshot freshness policy documented in the Product Owner decision record.
 4. Backend: confirm exact returned units, fill values, source names and native spatial resolution from a real API response at the approved location before freezing the DTO.
-5. Product: agree how provisional season windows and partial coverage are worded in the UI.
+5. Product/frontend: use clear provisional-window and partial-coverage wording; do not imply validated planting advice or a definitive ranking when evidence is insufficient.
 - NASA POWER Daily API: [NASA POWER | Docs | Data Services | Daily API - NASA POWER | Docs](https://power.larc.nasa.gov/docs/services/api/temporal/daily/)
 - NASA POWER parameter guide: [NASA POWER | Docs | Tutorials | Parameters - NASA POWER | Docs](https://power.larc.nasa.gov/docs/tutorials/parameters/)
 - NASA POWER API request tutorial: [NASA POWER | Docs | Tutorials | API - NASA POWER | Docs](https://power.larc.nasa.gov/docs/tutorials/service-data-request/api/)
 - MOFA Ejura-Sekyedumase District Directorate: [MOFA - Ejura-Sekyeredumase](https://mofa.gov.gh/site/sports/district-directorates/ashanti-region/164-ejura-sekyeredumase)
 - Ejura-Sekyedumase Municipal Assembly town profile: [Town Profile](https://esma.gov.gh/about-us/town-profile/)
-Decision: This specification is sufficiently concrete to guide NY-5/NY-6/NY-7 implementation scaffolding, but NY-13 should not be marked Done until a real API response is tested at the approved pilot coordinate, response metadata/units/fill values are captured, and the local season window plus coverage policy are approved.
+Decision: This specification is sufficiently concrete to guide NY-5/NY-6/NY-7 implementation. NY-13 should not be marked Done until a real API response is tested at the selected public pilot point(s), response metadata/units/fill values are captured, and the relevant local season windows are validated. Product decisions on freshness and missing/incomparable evidence are already recorded in the Product Owner decision record; they do not await a numeric coverage threshold.

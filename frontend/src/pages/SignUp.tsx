@@ -37,30 +37,6 @@ export default function SignUp() {
       minHeight: '80vh' 
     }}>
       <div className="modal-card">
-        <button 
-          onClick={() => navigate('/')}
-          style={{
-            position: 'absolute',
-            top: '1.5rem',
-            right: '1.5rem',
-            background: 'var(--line)',
-            border: 'none',
-            borderRadius: '50%',
-            width: '32px',
-            height: '32px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-            color: 'var(--muted)'
-          }}
-          aria-label="Close"
-        >
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M1 1L13 13M1 13L13 1" strokeLinecap="round"/>
-          </svg>
-        </button>
-
         <h2 style={{ fontSize: '1.5rem', marginBottom: '2rem', fontWeight: 600 }}>Create account</h2>
         
         {(error || localError) && (

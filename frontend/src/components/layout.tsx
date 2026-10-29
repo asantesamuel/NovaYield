@@ -1,9 +1,12 @@
-import { Link, Outlet, useNavigate } from 'react-router-dom';
+import { Link, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 export default function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const isAuthPage = location.pathname === '/login' || location.pathname === '/signup';
 
   const handleLogout = () => {
     logout();
@@ -41,7 +44,7 @@ export default function Layout() {
                 Logout
               </button>
             </>
-          ) : (
+          ) : !isAuthPage && (
             <>
               <Link to="/login" className="link-button" style={{ fontWeight: 500 }}>Login</Link>
               <Link to="/signup" className="primary-button" style={{ 

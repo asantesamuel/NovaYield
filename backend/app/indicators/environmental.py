@@ -6,12 +6,14 @@ import math
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.integrations.nasa.power import PowerParameterCode, PowerParameterSeries
-from app.models.environmental_snapshots import EnvironmentalSnapshot, SnapshotSeasonContext
+
+if TYPE_CHECKING:
+    from app.models.environmental_snapshots import EnvironmentalSnapshot, SnapshotSeasonContext
 
 IndicatorCode = Literal[
     "seasonal_precipitation_total",

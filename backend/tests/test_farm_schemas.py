@@ -15,7 +15,11 @@ def valid_profile() -> dict[str, object]:
 
     return {
         "name": "North field",
-        "location": {"label": "Ejura, Ashanti Region"},
+        "location": {
+            "label": "Synthetic test location",
+            "latitude": 0.0,
+            "longitude": 0.0,
+        },
     }
 
 
@@ -88,6 +92,11 @@ def test_location_rejects_coordinate_text_that_would_echo_in_responses() -> None
 def test_create_rejects_incomplete_profile_and_client_supplied_owner() -> None:
     with pytest.raises(ValidationError):
         FarmCreate.model_validate({"location": {"label": "Ejura"}})
+
+    with pytest.raises(ValidationError):
+        FarmCreate.model_validate(
+            {"name": "Test field", "location": {"label": "Synthetic test location"}}
+        )
 
     with pytest.raises(ValidationError):
         FarmCreate.model_validate({**valid_profile(), "owner_user_id": str(PydanticObjectId())})

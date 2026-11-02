@@ -75,7 +75,14 @@ def profile_create() -> FarmCreate:
     """Return synthetic mechanics-only input, not an asserted farm record."""
 
     return FarmCreate.model_validate(
-        {"name": "Test field", "location": {"label": "Synthetic test location"}}
+        {
+            "name": "Test field",
+            "location": {
+                "label": "Synthetic test location",
+                "latitude": 0.0,
+                "longitude": 0.0,
+            },
+        }
     )
 
 

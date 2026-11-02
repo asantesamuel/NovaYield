@@ -9,7 +9,6 @@ from pydantic import (
     Field,
     StringConstraints,
     field_validator,
-    model_validator,
 )
 
 from app.decisions.scoring import PriorityPoints
@@ -42,17 +41,18 @@ def validate_location_label(value: str) -> str:
 
 
 class FarmLocationData(BaseModel):
-    """Location persisted for later environmental workflows.
+    """Coordinates for one farm, with a separate human-readable location label.
 
     Precise coordinates stay in this private data object and are intentionally
-    omitted by the public farm response schema.
+    omitted by the farm response schema. Pilot reference points are area-level
+    research locations and are not defaults for an individual farm.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     label: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
-    latitude: float | None = Field(default=None, ge=-90, le=90)
-    longitude: float | None = Field(default=None, ge=-180, le=180)
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
 
     @field_validator("label")
     @classmethod
@@ -60,11 +60,3 @@ class FarmLocationData(BaseModel):
         """Keep free-form place labels from echoing precise coordinates publicly."""
 
         return validate_location_label(value)
-
-    @model_validator(mode="after")
-    def require_coordinate_pair(self) -> "FarmLocationData":
-        """Accept a precise point only when both coordinates are supplied."""
-
-        if (self.latitude is None) != (self.longitude is None):
-            raise ValueError("Latitude and longitude must be supplied together")
-        return self

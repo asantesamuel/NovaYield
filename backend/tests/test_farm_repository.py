@@ -1,11 +1,12 @@
-"""Repository query tests proving owner constraints are built into Mongo filters."""
+"""Repository query tests proving ownership and catalog constraints are applied."""
 
 import asyncio
 from typing import Any
 
+import pytest
 from beanie import PydanticObjectId, UpdateResponse
 
-from app.repositories.farms import FarmRepository
+from app.repositories.farms import FarmRepository, UnsupportedFarmLocation
 from app.schemas.farms import FarmCreate, FarmUpdate
 
 
@@ -71,32 +72,59 @@ class FakeFarmModel:
         return self.update_query
 
 
+class FakeSupportedLocationModel:
+    def __init__(self, selectable_keys: set[str] | None = None) -> None:
+        self.selectable_keys = (
+            {"ejura", "anyinasu", "kintampo"} if selectable_keys is None else selectable_keys
+        )
+        self.filters: list[dict[str, object]] = []
+
+    async def find_one(self, query: dict[str, object]) -> object | None:
+        self.filters.append(query)
+        if query["location_key"] in self.selectable_keys and query["is_selectable"] is True:
+            return object()
+        return None
+
+
 def profile_create() -> FarmCreate:
-    """Return synthetic mechanics-only input, not an asserted farm record."""
+    """Return contract-valid, non-real fixture input."""
 
-    return FarmCreate.model_validate(
-        {
-            "name": "Test field",
-            "location": {
-                "label": "Synthetic test location",
-                "latitude": 0.0,
-                "longitude": 0.0,
-            },
-        }
-    )
+    return FarmCreate.model_validate({"name": "Test field", "location_key": "ejura"})
 
 
-def test_create_sets_owner_from_explicit_authenticated_owner() -> None:
+def test_create_sets_owner_and_stores_only_catalog_reference() -> None:
     owner_user_id = PydanticObjectId()
     model = FakeFarmModel()
+    locations = FakeSupportedLocationModel()
 
     created = asyncio.run(
-        FarmRepository(model).create(owner_user_id=owner_user_id, profile=profile_create())
+        FarmRepository(model, locations).create(
+            owner_user_id=owner_user_id,
+            profile=profile_create(),
+        )
     )
 
     assert created.owner_user_id == owner_user_id
+    assert created.location_key == "ejura"
+    assert "coordinates" not in created.__dict__
     assert created.inserted
     assert model.created == [created]
+    assert locations.filters == [{"location_key": "ejura", "is_selectable": True}]
+
+
+def test_create_rejects_a_missing_or_disabled_catalog_location() -> None:
+    model = FakeFarmModel()
+    locations = FakeSupportedLocationModel(selectable_keys=set())
+
+    with pytest.raises(UnsupportedFarmLocation):
+        asyncio.run(
+            FarmRepository(model, locations).create(
+                owner_user_id=PydanticObjectId(),
+                profile=profile_create(),
+            )
+        )
+
+    assert model.created == []
 
 
 def test_list_query_contains_only_the_authenticated_owner() -> None:
@@ -144,3 +172,19 @@ def test_update_query_requires_both_ids_and_updates_only_allowed_fields() -> Non
     assert model.update_query.update_values["$set"]["name"] == "South field"
     assert "owner_user_id" not in model.update_query.update_values["$set"]
     assert model.update_query.response_type is UpdateResponse.NEW_DOCUMENT
+
+
+def test_update_validates_a_new_location_before_writing() -> None:
+    model = FakeFarmModel()
+    locations = FakeSupportedLocationModel(selectable_keys=set())
+
+    with pytest.raises(UnsupportedFarmLocation):
+        asyncio.run(
+            FarmRepository(model, locations).update_by_owner(
+                farm_id=PydanticObjectId(),
+                owner_user_id=PydanticObjectId(),
+                changes=FarmUpdate.model_validate({"location_key": "ejura"}),
+            )
+        )
+
+    assert model.filters == []

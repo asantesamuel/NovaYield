@@ -8,9 +8,9 @@
 
 ## 1. Executive Summary
 
-The Product Owner has finalized the direction for all nine product questions. Implementation should follow the decisions in §6. The most important boundary is that **product decisions are final for the MVP, while agronomic and location-specific evidence remains provisional until future field or expert validation**.
+The Product Owner finalized the direction for nine research questions on 29 October 2026 and later approved a supported-location lookup flow on 2 November 2026. Implementation should follow §6. The most important boundary is that **product behavior is agreed, while location-point suitability and agronomic evidence remain provisional until future local or expert validation**.
 
-- **Pilot:** Use Ejura-Sekyedumase Municipality as the provisional first pilot. Plan for at least two representative public/community reference points, selected with extension input. Exact points and local validation remain outstanding.
+- **Pilot and location lookup:** Use Ejura-Sekyedumase Municipality as the provisional first pilot. The initial catalog offers Ejura first, Anyinasu as another community in the municipality, and Kintampo as a fallback. Store sourced public reference coordinates in MongoDB; expose the location key and human-readable label to the application, never coordinates. Tell users coverage is limited to the catalog. The public points remain provisional pending local validation.
 - **Candidate crops:** Use maize, cowpea, groundnut, cassava, yam, and rice as the initial candidate library. Crop trait values and recommendation eligibility remain provisional when evidence is missing.
 - **Season windows:** Provisional, sourced windows may be shown with clear labels. Do not activate calendar-dependent agronomic rules or present definitive rankings as validated until relevant calendars are reviewed.
 - **NASA POWER:** Request daily `PRECTOTCORR`, `T2M`, and `T2M_MAX` in UTC and evaluate all three indicators. Use the reliable two if an indicator fails response metadata/coverage checks; document the reason. Exact metadata at selected points still needs validation.
@@ -218,7 +218,7 @@ Approval of a product direction does not convert desk research into local agrono
 
 | ID | Finalized direction | Status |
 | --- | --- | --- |
-| 1 | Use Ejura-Sekyedumase Municipality, Ashanti Region, as the first pilot; use at least two representative public/community reference points selected with extension input. | Pilot choice is finalized; exact points and local evidence remain provisional pending selection/validation. |
+| 1 | Use Ejura-Sekyedumase Municipality, Ashanti Region, as the first pilot; use a curated location lookup with Ejura, Anyinasu, and Kintampo town as the initial choices. Store sourced public reference coordinates in MongoDB and expose only key/label fields to the application. | Pilot and lookup behavior are finalized; point suitability and coordinates remain provisional pending local validation. |
 | 2 | Start with maize, cowpea, groundnut, cassava, yam, and rice as candidate crop records. | Crop list is finalized; unverified crop traits and eligibility remain provisional. |
 | 3 | Allow sourced, clearly labelled provisional crop/community season windows; do not activate dependent agronomic rules or describe definitive rankings as locally validated until review. | Product behavior is finalized; local calendar contents remain provisional. |
 | 4 | Evaluate seasonal precipitation total, mean daily `T2M`, and mean daily `T2M_MAX`; expose all three when metadata and coverage checks pass, otherwise use the reliable two and document the exclusion. | Indicator policy is finalized; live metadata/coverage validation remains required. |
@@ -230,9 +230,9 @@ Approval of a product direction does not convert desk research into local agrono
 
 ### Decision 1 — Pilot area and reference locations
 
-**Finalized decision:** Ejura-Sekyedumase Municipality is NovaYield's first pilot area. Represent its north–south variation with at least two public/community reference points; select the points with extension input. Kintampo South remains a fallback only if new evidence or practical constraints require reconsideration. Do not expose private, precise farm coordinates in public demos or diagnostics without a clear need and permission.
+**Finalized decision:** Ejura-Sekyedumase Municipality is NovaYield's first pilot area. NovaYield will use a curated location lookup so a farmer does not need to know or submit coordinates. The initial selectable labels are **Ejura** (primary), **Anyinasu** (another community in Ejura-Sekyedumase), and **Kintampo** (fallback). Each farm stores a stable location key; each catalog record stores a sourced public place point in MongoDB. API responses expose the key and human-readable label, not coordinates. The frontend must communicate that the service currently covers only its listed locations and has not expanded across Ghana.
 
-**Provisional elements:** The municipality-level choice is a desk-based recommendation. The exact reference points, their suitability, and the local crop/calendar evidence need future validation. Until then, real API checks should use only approved public/community points and must not imply that a grid point represents every farm in the municipality.
+**Provisional elements:** The municipality-level choice and the listed locations remain desk-based. The stored coordinates identify inhabited-place reference points, not farm locations, field centroids, or locally verified representative points. Ejura uses `7.3856, -1.3562` from the [Getty TGN record](https://www.getty.edu/vow/TGNFullDisplay?english=Y&find=&nation=&subjectid=1090118); Anyinasu uses `7.23705, -1.57696` from [Mapcarta's locality record](https://mapcarta.com/16954496); Kintampo town uses `8.0537, -1.7289` from [Mapcarta's locality record](https://mapcarta.com/16944928). These need local validation and actual NASA POWER grid-metadata checks. The Kintampo coordinate is for Kintampo town in Kintampo North, while NY-12 also names Kintampo South as a fallback area; confirm the intended administrative fallback before describing it more broadly. Upper East remains a later comparison/expansion area, not a current lookup choice.
 
 ### Decision 2 — Candidate crop library
 

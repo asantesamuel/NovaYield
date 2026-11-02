@@ -11,7 +11,9 @@ from pydantic import SecretStr
 from app.core.config import Settings
 from app.database.connection import MongoConnection
 from app.models.farms import FARM_OWNER_INDEX_NAME, Farm
+from app.models.supported_locations import SUPPORTED_LOCATION_KEY_INDEX_NAME, SupportedLocation
 from app.repositories.farms import FarmRepository
+from app.repositories.supported_locations import SupportedLocationRepository
 from app.schemas.farms import FarmCreate, FarmUpdate
 
 
@@ -28,7 +30,7 @@ def test_farm_repository_persists_profiles_and_owner_index_in_mongodb() -> None:
                 mongodb_uri=SecretStr(uri),
                 mongodb_database_name=database_name,
             ),
-            document_model_loader=lambda: (Farm,),
+            document_model_loader=lambda: (Farm, SupportedLocation),
         )
         connected = False
 
@@ -36,17 +38,15 @@ def test_farm_repository_persists_profiles_and_owner_index_in_mongodb() -> None:
             connected = await connection.connect()
             assert connected
 
+            locations_inserted = await SupportedLocationRepository().seed_missing()
+            assert locations_inserted == 3
             repository = FarmRepository()
             owner_user_id = PydanticObjectId()
             other_user_id = PydanticObjectId()
             profile = FarmCreate.model_validate(
                 {
                     "name": "Test field",
-                    "location": {
-                        "label": "Synthetic test location",
-                        "latitude": 0.0,
-                        "longitude": 0.0,
-                    },
+                    "location_key": "ejura",
                     "soil_texture": "sandy loam",
                 }
             )
@@ -91,6 +91,9 @@ def test_farm_repository_persists_profiles_and_owner_index_in_mongodb() -> None:
             indexes = await Farm.get_pymongo_collection().index_information()
             assert FARM_OWNER_INDEX_NAME in indexes
             assert indexes[FARM_OWNER_INDEX_NAME]["key"] == [("owner_user_id", 1)]
+            location_indexes = await SupportedLocation.get_pymongo_collection().index_information()
+            assert SUPPORTED_LOCATION_KEY_INDEX_NAME in location_indexes
+            assert location_indexes[SUPPORTED_LOCATION_KEY_INDEX_NAME]["unique"] is True
         finally:
             try:
                 if connected:

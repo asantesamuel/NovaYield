@@ -1,22 +1,23 @@
 """Farm profile value types and defaults shared across NY-19 layers."""
 
-import re
-from typing import Annotated
+from typing import Annotated, Literal
 
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    StringConstraints,
-    field_validator,
-)
+from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, StringConstraints
 
 from app.decisions.scoring import PriorityPoints
 
 FarmName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
 FarmText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=300)]
 CropName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
-_PRECISE_COORDINATE_TEXT = re.compile(r"(?<!\w)[+-]?\d{1,3}\.\d{3,}(?!\w)")
+LocationKey = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=2,
+        max_length=80,
+        pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$",
+    ),
+]
 
 DEFAULT_FARMER_PRIORITIES: dict[str, int] = {
     "water_resilience": 25,
@@ -32,31 +33,30 @@ def default_farmer_priorities() -> PriorityPoints:
     return PriorityPoints(**DEFAULT_FARMER_PRIORITIES)
 
 
-def validate_location_label(value: str) -> str:
-    """Reject coordinate-like numbers before a place label can be returned."""
+class LocationCoordinates(BaseModel):
+    """Private coordinate pair stored on one curated supported-location record."""
 
-    if _PRECISE_COORDINATE_TEXT.search(value):
-        raise ValueError("Location label cannot contain precise coordinate values")
-    return value
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
-
-class FarmLocationData(BaseModel):
-    """Coordinates for one farm, with a separate human-readable location label.
-
-    Precise coordinates stay in this private data object and are intentionally
-    omitted by the farm response schema. Pilot reference points are area-level
-    research locations and are not defaults for an individual farm.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    label: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
 
-    @field_validator("label")
-    @classmethod
-    def reject_coordinate_text(cls, value: str) -> str:
-        """Keep free-form place labels from echoing precise coordinates publicly."""
 
-        return validate_location_label(value)
+class SupportedLocationSeed(BaseModel):
+    """Curated place point, provenance, and display metadata loaded into MongoDB."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    location_key: LocationKey
+    label: FarmText
+    locality: FarmText
+    administrative_area: FarmText
+    region: FarmText
+    country: FarmText = "Ghana"
+    coordinates: LocationCoordinates
+    point_scope: Literal["inhabited_place_reference"]
+    coordinate_source: FarmText
+    coordinate_source_url: AnyHttpUrl
+    validation_status: Literal["provisional", "reviewed"] = "provisional"
+    is_selectable: bool = True
+    sort_order: int = Field(ge=0)

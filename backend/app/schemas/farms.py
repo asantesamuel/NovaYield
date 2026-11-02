@@ -5,20 +5,20 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.decisions.scoring import PriorityPoints
 from app.farms.contracts import (
     CropName,
-    FarmLocationData,
     FarmName,
     FarmText,
+    LocationKey,
     default_farmer_priorities,
-    validate_location_label,
 )
 
 if TYPE_CHECKING:
     from app.models.farms import Farm
+    from app.models.supported_locations import SupportedLocation
 
 
 class FarmCreate(BaseModel):
@@ -27,7 +27,7 @@ class FarmCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: FarmName
-    location: FarmLocationData
+    location_key: LocationKey
     soil_texture: FarmText | None = None
     irrigation_access: FarmText | None = None
     previous_crops: list[CropName] | None = None
@@ -36,12 +36,12 @@ class FarmCreate(BaseModel):
 
 
 class FarmUpdate(BaseModel):
-    """Partial update fields; a supplied location replaces the stored location."""
+    """Partial update fields; a supplied key selects another supported location."""
 
     model_config = ConfigDict(extra="forbid")
 
     name: FarmName | None = None
-    location: FarmLocationData | None = None
+    location_key: LocationKey | None = None
     soil_texture: FarmText | None = None
     irrigation_access: FarmText | None = None
     previous_crops: list[CropName] | None = None
@@ -54,29 +54,36 @@ class FarmUpdate(BaseModel):
 
         if not self.model_fields_set:
             raise ValueError("At least one farm field must be supplied")
-        for field_name in ("name", "location", "farmer_priorities"):
+        for field_name in ("name", "location_key", "farmer_priorities"):
             if field_name in self.model_fields_set and getattr(self, field_name) is None:
                 raise ValueError(f"{field_name} cannot be cleared")
         return self
 
 
-class FarmLocationSummary(BaseModel):
-    """Location label safe to return from the authenticated farm API."""
+class SupportedLocationOption(BaseModel):
+    """Selectable location fields safe for the frontend; coordinates are omitted."""
 
     model_config = ConfigDict(extra="forbid")
 
+    location_key: LocationKey
     label: FarmText
 
-    @field_validator("label")
     @classmethod
-    def reject_coordinate_text(cls, value: str) -> str:
-        """Keep a malformed persisted label from leaking coordinates in responses."""
+    def from_document(cls, location: SupportedLocation) -> SupportedLocationOption:
+        return cls(location_key=location.location_key, label=location.label)
 
-        return validate_location_label(value)
+
+class FarmLocationSummary(BaseModel):
+    """Stable lookup key plus display label; private point coordinates are omitted."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    location_key: LocationKey
+    label: FarmText
 
 
 class FarmResponse(BaseModel):
-    """Public farm DTO: API ID is a string; owner ID and exact coordinates are omitted."""
+    """Public farm DTO: owner ID and exact location coordinates are omitted."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -92,13 +99,16 @@ class FarmResponse(BaseModel):
     updated_at: datetime
 
     @classmethod
-    def from_document(cls, farm: Farm) -> FarmResponse:
-        """Map persistence data to a response without copying private location fields."""
+    def from_document(cls, farm: Farm, *, location_label: str) -> FarmResponse:
+        """Map persistence data to a safe response after resolving its catalog label."""
 
         return cls(
             id=str(farm.id),
             name=farm.name,
-            location=FarmLocationSummary(label=farm.location.label),
+            location=FarmLocationSummary(
+                location_key=farm.location_key,
+                label=location_label,
+            ),
             soil_texture=farm.soil_texture,
             irrigation_access=farm.irrigation_access,
             previous_crops=farm.previous_crops,

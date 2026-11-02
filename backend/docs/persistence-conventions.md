@@ -49,6 +49,7 @@ The central database task owns connection/configuration/registry code. Each doma
 ## IDs, references, ownership, and indexes
 
 - Use MongoDB `ObjectId` values for document IDs and references. Convert IDs to strings only at the public API boundary; do not serialize Beanie documents directly as API responses.
+- A farm stores `location_key` pointing to the unique key on a `SupportedLocation` catalog document. It does not embed coordinates or depend on a relational foreign key. The catalog owns the sourced public reference point and its provisional/reviewed status; backend ingestion may resolve it internally. Location-option and farm-response DTOs expose a key and display label, never coordinates. See [the supported-location catalog](supported-locations.md).
 - Store references such as `Farm.owner_user_id`, `RotationResult.owner_user_id`, and `RotationResult.farm_id` as ObjectId-valued fields. These are document references, not SQL foreign keys. NY-4 does not require Beanie `Link` fields or cross-collection joins.
 - Authorization is enforced by application queries. Farm reads/updates include both the requested farm `_id` and authenticated `owner_user_id`. Result queries include the authenticated owner and the relevant farm reference, and verify that the farm belongs to that owner. Never authorize from a caller-supplied user ID alone.
 - Normalize a user's email (trim and lowercase) before storing it; NY-11 defines the unique index on that normalized field.

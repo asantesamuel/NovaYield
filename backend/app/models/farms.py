@@ -8,7 +8,12 @@ from pymongo import ASCENDING, IndexModel
 
 from app.database.registry import register_document_model
 from app.decisions.scoring import PriorityPoints
-from app.farms.contracts import FarmLocationData, FarmName, FarmText, default_farmer_priorities
+from app.farms.contracts import (
+    FarmName,
+    FarmText,
+    LocationKey,
+    default_farmer_priorities,
+)
 
 FARM_COLLECTION_NAME = "farms"
 FARM_OWNER_INDEX_NAME = "ix_farms_owner_user_id"
@@ -20,7 +25,7 @@ class Farm(Document):
 
     owner_user_id: PydanticObjectId
     name: FarmName
-    location: FarmLocationData
+    location_key: LocationKey
     soil_texture: FarmText | None = None
     irrigation_access: FarmText | None = None
     previous_crops: list[FarmText] | None = None

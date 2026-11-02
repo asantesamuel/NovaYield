@@ -16,6 +16,7 @@ This directory contains Nova Yield's FastAPI application and Python dependencies
 - `docs/persistence-conventions.md` explains MongoDB references, indexes, and lifecycle conventions from NY-4.
 - `docs/nasa-power.md` records the NY-5 request, normalization, coverage, privacy, and error contracts.
 - `docs/nasa-power-snapshots.md` records the NY-6 identity, persistence, and refresh-policy decisions.
+- `docs/supported-locations.md` and `docs/farms-api.md` describe the curated location catalog, coordinate privacy, farm requests, authentication, and coverage notice.
 
 ## Local development (Windows PowerShell)
 

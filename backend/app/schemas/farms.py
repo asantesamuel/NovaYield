@@ -73,6 +73,15 @@ class SupportedLocationOption(BaseModel):
         return cls(location_key=location.location_key, label=location.label)
 
 
+class SupportedLocationsResponse(BaseModel):
+    """Public catalog response with an explicit limited-coverage notice."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    coverage_notice: str
+    locations: list[SupportedLocationOption]
+
+
 class FarmLocationSummary(BaseModel):
     """Stable lookup key plus display label; private point coordinates are omitted."""
 

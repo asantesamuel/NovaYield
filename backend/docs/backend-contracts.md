@@ -32,7 +32,7 @@ These paths are the proposed boundary for later feature tickets; NY-3 only estab
 | Route group | Initial route boundary | Owning module |
 | --- | --- | --- |
 | Authentication | `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `GET /api/v1/auth/me` | `api/v1/auth` + `services/auth` |
-| Farms | `POST /api/v1/farms`, `GET /api/v1/farms`, `GET /api/v1/farms/{farm_id}`, `PATCH /api/v1/farms/{farm_id}` | `api/v1/farms` + `services/farms` |
+| Farms | Public location lookup: `GET /api/v1/farms/locations`; authenticated farm operations: `POST /api/v1/farms`, `GET /api/v1/farms`, `GET /api/v1/farms/{farm_id}`, `PATCH /api/v1/farms/{farm_id}` | `app/farms/routes.py`; NY-9 mounts the feature router |
 | Environmental data | Farm-scoped request/retrieval boundary to be confirmed after NASA variable and freshness research | `api/v1/environmental_data` + `integrations/nasa` + `services/environmental_data` |
 | Decision support | Create and retrieve farm-specific rotation results after NY-13–NY-17 provide actionable decision requirements | `api/v1/decisions` + `services/decisions` |
 

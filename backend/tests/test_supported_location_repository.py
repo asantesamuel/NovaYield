@@ -56,11 +56,19 @@ class FakeLocationModel:
 
     def find(self, query: dict[str, object]) -> FakeLocationCursor:
         self.filters.append(query)
-        records = [
-            record
-            for record in self.records.values()
-            if all(getattr(record, field) == value for field, value in query.items())
-        ]
+        records = []
+        for record in self.records.values():
+            matches = True
+            for field, value in query.items():
+                actual = getattr(record, field)
+                if isinstance(value, dict) and "$in" in value:
+                    matches = actual in value["$in"]
+                else:
+                    matches = actual == value
+                if not matches:
+                    break
+            if matches:
+                records.append(record)
         return FakeLocationCursor(records)
 
 
@@ -97,4 +105,23 @@ def test_catalog_lookup_requires_selectable_key_and_list_is_ordered() -> None:
     assert model.filters[-2:] == [
         {"location_key": "unknown", "is_selectable": True},
         {"location_key": "anyinasu", "is_selectable": True},
+    ]
+
+
+def test_existing_farm_location_can_be_resolved_even_if_disabled_and_keys_are_batched() -> None:
+    model = FakeLocationModel()
+    repository = SupportedLocationRepository(model)
+    asyncio.run(repository.seed_missing())
+    model.records["anyinasu"].is_selectable = False
+
+    existing = asyncio.run(repository.get_by_key("anyinasu"))
+    batch = asyncio.run(repository.list_by_keys({"ejura", "anyinasu"}))
+    empty = asyncio.run(repository.list_by_keys(set()))
+
+    assert existing is model.records["anyinasu"]
+    assert {location.location_key for location in batch} == {"ejura", "anyinasu"}
+    assert empty == []
+    assert model.filters[-2:] == [
+        {"location_key": "anyinasu"},
+        {"location_key": {"$in": ["anyinasu", "ejura"]}},
     ]

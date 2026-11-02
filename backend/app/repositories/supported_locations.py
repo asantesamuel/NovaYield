@@ -34,6 +34,20 @@ class SupportedLocationRepository:
             {"location_key": location_key, "is_selectable": True}
         )
 
+    async def get_by_key(self, location_key: str) -> SupportedLocation | None:
+        """Resolve a catalog record for an existing farm, even if no longer selectable."""
+
+        return await self._location_model.find_one({"location_key": location_key})
+
+    async def list_by_keys(self, location_keys: set[str]) -> list[SupportedLocation]:
+        """Resolve multiple farm references in one query instead of doing an N+1 lookup."""
+
+        if not location_keys:
+            return []
+        return await self._location_model.find(
+            {"location_key": {"$in": sorted(location_keys)}}
+        ).to_list()
+
     async def seed_missing(
         self,
         seeds: tuple[SupportedLocationSeed, ...] = SUPPORTED_LOCATION_SEEDS,

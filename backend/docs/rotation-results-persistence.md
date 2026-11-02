@@ -2,7 +2,7 @@
 
 ## Boundary
 
-`app.models.rotation_results` owns the Beanie document and its collection index. `app.repositories.rotation_results` inserts an already-generated NY-8 result. This feature does not score, call NASA, expose HTTP routes, or orchestrate generation; NY-9 will call the repository and mount read routes in its integration work.
+`app.models.rotation_results` owns the Beanie document and its collection index. `app.repositories.rotation_results` inserts and retrieves already-generated NY-8 results. The feature does not score, call NASA, or orchestrate generation; NY-9 will call the save method and mount the feature router in its integration work.
 
 ## Stored record
 
@@ -31,3 +31,14 @@ This supports newest-first history for one authenticated owner's farm. A detail 
 `RotationResultRepository.create_for_farm` accepts the authenticated owner's ID and a farm document that NY-9 has already authorized. It verifies the farm's stored owner matches that caller, derives `farm_id` and the profile snapshot from the farm document, then inserts one result. It does not accept owner or farm IDs from a request body and exposes no update/delete operation.
 
 The feature model uses NY-4's `@register_document_model` hook. Its module is auto-discovered by the central Beanie registry; this feature must not edit the shared registry, Mongo connection, app entry point, or router registry.
+
+## Read routes
+
+The feature router factory exposes two authenticated read routes for NY-9 to mount:
+
+```text
+GET /api/v1/farms/{farm_id}/rotation-results
+GET /api/v1/farms/{farm_id}/rotation-results/{result_id}
+```
+
+Both routes first confirm the farm belongs to the authenticated user. The repository then filters by `owner_user_id` and `farm_id`; detail retrieval also filters by the result `_id`. Missing and non-owned farms return the same 404, as do missing or non-owned results. The response DTO includes the farm input snapshot, candidate-generator version, scored decision options, criterion explanations, and indicator provenance. It returns the scored options rather than the entire generated candidate set, which may be much larger than the options being presented. It does not serialize the internal owner ID, raw snapshot ObjectIds, credentials, or session tokens.

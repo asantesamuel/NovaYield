@@ -270,6 +270,85 @@ def test_central_registry_discovers_the_feature_document() -> None:
     assert RotationResult in load_document_models()
 
 
+class FakeFindMany:
+    """Record a Beanie-style sort and return configured documents immediately."""
+
+    def __init__(self, documents: list[object]) -> None:
+        self.documents = documents
+        self.sort_fields: list[tuple[str, int]] | None = None
+
+    def sort(self, fields: list[tuple[str, int]]) -> FakeFindMany:
+        self.sort_fields = fields
+        return self
+
+    async def to_list(self) -> list[object]:
+        return self.documents
+
+
+def test_history_query_filters_by_owner_and_farm_and_sorts_newest_first() -> None:
+    owner_user_id = PydanticObjectId()
+    farm_id = PydanticObjectId()
+    expected = [object(), object()]
+
+    class FakeReadModel:
+        query: dict[str, PydanticObjectId] | None = None
+        find_many: FakeFindMany
+
+        @classmethod
+        def find(cls, query: dict[str, PydanticObjectId]) -> FakeFindMany:
+            cls.query = query
+            cls.find_many = FakeFindMany(expected)
+            return cls.find_many
+
+    repository = RotationResultRepository(FakeReadModel)
+    results = run_immediately(
+        repository.list_by_owner_and_farm(
+            owner_user_id=owner_user_id,
+            farm_id=farm_id,
+        )
+    )
+
+    assert results == expected
+    assert FakeReadModel.query == {
+        "owner_user_id": owner_user_id,
+        "farm_id": farm_id,
+    }
+    assert FakeReadModel.find_many.sort_fields == [("created_at", DESCENDING)]
+
+
+def test_detail_query_filters_by_result_owner_and_farm_ids() -> None:
+    result_id = PydanticObjectId()
+    owner_user_id = PydanticObjectId()
+    farm_id = PydanticObjectId()
+
+    class FakeReadModel:
+        query: dict[str, PydanticObjectId] | None = None
+
+        @classmethod
+        async def find_one(
+            cls,
+            query: dict[str, PydanticObjectId],
+        ) -> None:
+            cls.query = query
+            return None
+
+    repository = RotationResultRepository(FakeReadModel)
+    result = run_immediately(
+        repository.get_by_owner_farm_and_id(
+            owner_user_id=owner_user_id,
+            farm_id=farm_id,
+            result_id=result_id,
+        )
+    )
+
+    assert result is None
+    assert FakeReadModel.query == {
+        "_id": result_id,
+        "owner_user_id": owner_user_id,
+        "farm_id": farm_id,
+    }
+
+
 def test_rotation_result_persistence_round_trip_and_index_in_mongodb() -> None:
     """Optional real-Mongo check; set NOVAYIELD_TEST_MONGODB_URI to enable it."""
 

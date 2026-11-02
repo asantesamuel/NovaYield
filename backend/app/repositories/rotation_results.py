@@ -3,6 +3,7 @@
 from typing import Any
 
 from beanie import PydanticObjectId
+from pymongo import DESCENDING
 
 from app.decisions.rotation import RotationGenerationResult
 from app.decisions.scoring import ScoringResult
@@ -23,7 +24,7 @@ class FarmNotPersistedForResult(ValueError):
 
 
 class RotationResultRepository:
-    """Persist NY-8 outputs without recalculating them or accepting client owner IDs."""
+    """Persist and retrieve NY-8 outputs using owner/farm query constraints."""
 
     def __init__(self, result_model: Any = RotationResult) -> None:
         """Allow an in-memory document double in unit tests; production uses Beanie."""
@@ -56,3 +57,36 @@ class RotationResultRepository:
         )
         await result.insert()
         return result
+
+    async def list_by_owner_and_farm(
+        self,
+        *,
+        owner_user_id: PydanticObjectId,
+        farm_id: PydanticObjectId,
+    ) -> list[RotationResult]:
+        """Return one owner's results for one farm, newest first."""
+
+        query = self._result_model.find(
+            {
+                "owner_user_id": owner_user_id,
+                "farm_id": farm_id,
+            }
+        )
+        return await query.sort([("created_at", DESCENDING)]).to_list()
+
+    async def get_by_owner_farm_and_id(
+        self,
+        *,
+        owner_user_id: PydanticObjectId,
+        farm_id: PydanticObjectId,
+        result_id: PydanticObjectId,
+    ) -> RotationResult | None:
+        """Fetch only when the result, farm, and authenticated owner all match."""
+
+        return await self._result_model.find_one(
+            {
+                "_id": result_id,
+                "owner_user_id": owner_user_id,
+                "farm_id": farm_id,
+            }
+        )

@@ -241,6 +241,51 @@ def make_retrieval(request: PowerRequest) -> SnapshotRetrieval:
     )
 
 
+def make_rotation_request(
+    *,
+    historical_seasons: tuple[dict[str, Any], ...] | None = None,
+    recommendation_seasons: tuple[dict[str, Any], ...] | None = None,
+) -> RotationRecommendationRequest:
+    """Build a synthetic request with past NASA windows and separate future slots."""
+
+    if historical_seasons is None:
+        historical_seasons = (
+            {
+                "season_label": "2020 major",
+                "analysis_start_date": "2020-04-01",
+                "analysis_end_date": "2020-04-02",
+                "planted_crop": "maize",
+            },
+            {
+                "season_label": "2020 minor",
+                "analysis_start_date": "2020-09-01",
+                "analysis_end_date": "2020-09-02",
+                "planted_crop": "cowpea",
+            },
+            {
+                "season_label": "2021 major",
+                "analysis_start_date": "2021-04-01",
+                "analysis_end_date": "2021-04-02",
+                "planted_crop": "yam",
+            },
+        )
+    if recommendation_seasons is None:
+        first_start = date.today() + timedelta(days=30)
+        recommendation_seasons = tuple(
+            {
+                "season_label": f"future slot {order}",
+                "window_start": first_start + timedelta(days=31 * (order - 1)),
+                "window_end": first_start + timedelta(days=31 * (order - 1) + 29),
+            }
+            for order in range(1, 4)
+        )
+    return RotationRecommendationRequest(
+        plot_reference="plot-a",
+        historical_seasons=historical_seasons,
+        recommendation_seasons=recommendation_seasons,
+    )
+
+
 def make_router_and_handler() -> tuple[Any, Any]:
     def current_active_user() -> User:
         return make_user(PydanticObjectId())
@@ -419,16 +464,47 @@ def test_environmental_request_rejects_future_dates_and_invalid_ranges() -> None
         )
 
 
-def test_rotation_seasons_must_be_past_farmer_reports() -> None:
+def test_rotation_historical_analysis_periods_must_be_past() -> None:
     today = date.today()
     with pytest.raises(ValueError, match="must be in the past"):
-        RotationRecommendationRequest(
-            plot_reference="plot-a",
-            planting_seasons=(
-                {"season_label": "one", "window_start": today, "window_end": today},
-                {"season_label": "two", "window_start": "2020-01-03", "window_end": "2020-01-04"},
-                {"season_label": "three", "window_start": "2020-01-05", "window_end": "2020-01-06"},
+        make_rotation_request(
+            historical_seasons=(
+                {
+                    "season_label": "one",
+                    "analysis_start_date": today,
+                    "analysis_end_date": today,
+                },
+                {
+                    "season_label": "two",
+                    "analysis_start_date": "2020-01-03",
+                    "analysis_end_date": "2020-01-04",
+                },
+                {
+                    "season_label": "three",
+                    "analysis_start_date": "2020-01-05",
+                    "analysis_end_date": "2020-01-06",
+                },
             ),
+        )
+
+
+def test_rotation_recommendation_slots_must_be_future_periods() -> None:
+    today = date.today()
+    with pytest.raises(ValueError, match="must be in the future"):
+        make_rotation_request(
+            recommendation_seasons=(
+                {"season_label": "one", "window_start": today, "window_end": today},
+                {
+                    "season_label": "two",
+                    "window_start": today + timedelta(days=1),
+                    "window_end": today + timedelta(days=2),
+                },
+                {
+                    "season_label": "three",
+                    "window_start": today + timedelta(days=3),
+                    "window_end": today + timedelta(days=4),
+                },
+            )
         )
 
 
@@ -452,25 +528,24 @@ def test_rotation_workflow_uses_past_farm_reports_and_persists_unranked_result()
         for route in router.routes
         if isinstance(route, APIRoute) and route.path == "/farms/{farm_id}/rotation-recommendations"
     )
-    request = RotationRecommendationRequest(
-        plot_reference="plot-a",
-        planting_seasons=(
+    request = make_rotation_request(
+        historical_seasons=(
             {
                 "season_label": "2020 major",
-                "window_start": "2020-04-01",
-                "window_end": "2020-04-02",
+                "analysis_start_date": "2020-04-01",
+                "analysis_end_date": "2020-04-02",
                 "planted_crop": "maize",
             },
             {
                 "season_label": "2020 minor",
-                "window_start": "2020-09-01",
-                "window_end": "2020-09-02",
+                "analysis_start_date": "2020-09-01",
+                "analysis_end_date": "2020-09-02",
                 "planted_crop": "cowpea",
             },
             {
                 "season_label": "2021 major",
-                "window_start": "2021-04-01",
-                "window_end": "2021-04-02",
+                "analysis_start_date": "2021-04-01",
+                "analysis_end_date": "2021-04-02",
                 "planted_crop": "yam",
             },
         ),
@@ -502,6 +577,20 @@ def test_rotation_workflow_uses_past_farm_reports_and_persists_unranked_result()
         "cowpea",
         "yam",
     ]
+    future_slots = request.recommendation_seasons
+    first_future_event = saved_call["candidate_generation"].candidates[0].events[0].event
+    assert first_future_event.window_start == future_slots[0].window_start
+    assert first_future_event.window_end == future_slots[0].window_end
+    assert first_future_event.season_label == future_slots[0].season_label
+    assert all(
+        snapshot_request.start_date == season.analysis_start_date
+        and snapshot_request.end_date == season.analysis_end_date
+        for (snapshot_request, _force_refresh), season in zip(
+            snapshot_service.requests,
+            request.historical_seasons,
+            strict=True,
+        )
+    )
     assert saved_call["owner_user_id"] == owner_id
     assert saved_call["scoring_result"].selected_weights.points == farm.farmer_priorities
     assert result_repository.saved_result is not None
@@ -549,14 +638,7 @@ def test_rotation_workflow_does_not_fetch_or_save_for_a_non_owned_farm() -> None
         for route in router.routes
         if isinstance(route, APIRoute) and route.path == "/farms/{farm_id}/rotation-recommendations"
     )
-    request = RotationRecommendationRequest(
-        plot_reference="plot-a",
-        planting_seasons=(
-            {"season_label": "one", "window_start": "2020-01-01", "window_end": "2020-01-02"},
-            {"season_label": "two", "window_start": "2020-01-03", "window_end": "2020-01-04"},
-            {"season_label": "three", "window_start": "2020-01-05", "window_end": "2020-01-06"},
-        ),
-    )
+    request = make_rotation_request()
 
     with pytest.raises(HTTPException) as not_found:
         run_immediately(
@@ -591,14 +673,7 @@ def test_rotation_result_storage_error_returns_safe_service_unavailable() -> Non
         for route in router.routes
         if isinstance(route, APIRoute) and route.path == "/farms/{farm_id}/rotation-recommendations"
     )
-    request = RotationRecommendationRequest(
-        plot_reference="plot-a",
-        planting_seasons=(
-            {"season_label": "one", "window_start": "2020-01-01", "window_end": "2020-01-02"},
-            {"season_label": "two", "window_start": "2020-01-03", "window_end": "2020-01-04"},
-            {"season_label": "three", "window_start": "2020-01-05", "window_end": "2020-01-06"},
-        ),
-    )
+    request = make_rotation_request()
 
     with pytest.raises(HTTPException) as unavailable:
         run_immediately(
@@ -621,26 +696,44 @@ def test_rotation_result_storage_error_returns_safe_service_unavailable() -> Non
 
 def test_rotation_request_rejects_overlapping_periods_and_unknown_crop_ids() -> None:
     with pytest.raises(ValueError, match="chronological and non-overlapping"):
-        RotationRecommendationRequest(
-            plot_reference="plot-a",
-            planting_seasons=(
-                {"season_label": "one", "window_start": "2020-01-01", "window_end": "2020-01-10"},
-                {"season_label": "two", "window_start": "2020-01-10", "window_end": "2020-01-20"},
-                {"season_label": "three", "window_start": "2020-02-01", "window_end": "2020-02-10"},
+        make_rotation_request(
+            historical_seasons=(
+                {
+                    "season_label": "one",
+                    "analysis_start_date": "2020-01-01",
+                    "analysis_end_date": "2020-01-10",
+                },
+                {
+                    "season_label": "two",
+                    "analysis_start_date": "2020-01-10",
+                    "analysis_end_date": "2020-01-20",
+                },
+                {
+                    "season_label": "three",
+                    "analysis_start_date": "2020-02-01",
+                    "analysis_end_date": "2020-02-10",
+                },
             ),
         )
     with pytest.raises(ValueError, match="supported crop library"):
-        RotationRecommendationRequest(
-            plot_reference="plot-a",
-            planting_seasons=(
+        make_rotation_request(
+            historical_seasons=(
                 {
                     "season_label": "one",
-                    "window_start": "2020-01-01",
-                    "window_end": "2020-01-02",
+                    "analysis_start_date": "2020-01-01",
+                    "analysis_end_date": "2020-01-02",
                     "planted_crop": "soybean",
                 },
-                {"season_label": "two", "window_start": "2020-01-03", "window_end": "2020-01-04"},
-                {"season_label": "three", "window_start": "2020-01-05", "window_end": "2020-01-06"},
+                {
+                    "season_label": "two",
+                    "analysis_start_date": "2020-01-03",
+                    "analysis_end_date": "2020-01-04",
+                },
+                {
+                    "season_label": "three",
+                    "analysis_start_date": "2020-01-05",
+                    "analysis_end_date": "2020-01-06",
+                },
             ),
         )
 

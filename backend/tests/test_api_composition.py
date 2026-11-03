@@ -63,6 +63,22 @@ def test_create_app_composes_versioned_feature_routes_without_global_router_stat
     assert {"401", "403", "404", "422", "503"} <= rotation_operation["responses"].keys()
     assert rotation_operation["security"]
 
+    rotation_request_schema = first_app.openapi()["components"]["schemas"][
+        "RotationRecommendationRequest"
+    ]
+    assert set(rotation_request_schema["properties"]) == {
+        "plot_reference",
+        "historical_seasons",
+        "recommendation_seasons",
+        "force_refresh",
+    }
+    assert rotation_request_schema["properties"]["historical_seasons"]["items"]["$ref"].endswith(
+        "/HistoricalSeasonReport"
+    )
+    assert rotation_request_schema["properties"]["recommendation_seasons"]["items"][
+        "$ref"
+    ].endswith("/RecommendationSeasonSlot")
+
 
 def test_location_hash_secret_requires_at_least_32_bytes() -> None:
     with pytest.raises(ValidationError, match="at least 32 bytes"):

@@ -50,32 +50,84 @@ in `X-CSRF-Token`, following the existing [authentication flow](authentication.m
 
 ## Rotation generation
 
-`POST /api/v1/farms/{farm_id}/rotation-recommendations` accepts three
-chronological, non-overlapping farmer-reported past periods for one plot. The
-farmer identifies the three consecutive seasons; the API does not infer season
-boundaries from an unvalidated crop calendar. Each period has a label, inclusive
-historical start/end dates strictly before today, and an optional planted crop
-from the approved six-crop library. `plot_reference` is a short safe identifier such as `plot-a`;
-coordinates, owner IDs, crop rules, and weights are not accepted. The server
-uses the persisted farm's priority points and supported-location reference
-point. If all three reported crops are known, they are retained as the
-farmer-reported baseline; otherwise the baseline is absent.
+`POST /api/v1/farms/{farm_id}/rotation-recommendations` separates past
+farmer-reported history from future recommendation slots. Its request shape is
+illustrated below. The dates are synthetic examples for the schema only; they
+are not a crop calendar or planting advice.
 
-For each period, NY-6 retrieves or reuses its matching persisted NASA snapshot
-and NY-7 calculates indicators over the same dates. NY-8 receives those
-indicators and the farm's persisted priorities. NY-20 stores the exact
+```json
+{
+  "plot_reference": "plot-a",
+  "force_refresh": false,
+  "historical_seasons": [
+    {
+      "season_label": "2020 major",
+      "analysis_start_date": "2020-04-01",
+      "analysis_end_date": "2020-07-31",
+      "planted_crop": "maize"
+    },
+    {
+      "season_label": "2020 minor",
+      "analysis_start_date": "2020-09-01",
+      "analysis_end_date": "2020-10-31",
+      "planted_crop": "cowpea"
+    },
+    {
+      "season_label": "2021 major",
+      "analysis_start_date": "2021-04-01",
+      "analysis_end_date": "2021-07-31",
+      "planted_crop": "yam"
+    }
+  ],
+  "recommendation_seasons": [
+    {
+      "season_label": "future slot 1",
+      "window_start": "2027-01-01",
+      "window_end": "2027-01-31"
+    },
+    {
+      "season_label": "future slot 2",
+      "window_start": "2027-02-01",
+      "window_end": "2027-02-28"
+    },
+    {
+      "season_label": "future slot 3",
+      "window_start": "2027-03-01",
+      "window_end": "2027-03-31"
+    }
+  ]
+}
+```
+
+The three `historical_seasons` are past reports. Their inclusive analysis dates
+are the **only dates sent to NY-6/NASA POWER**; each cached response is reused
+for NY-7 indicators. `planted_crop` is optional and may contribute to the
+current-practice baseline only when all three reported crops are known.
+
+The three `recommendation_seasons` are future NY-8 event slots. They are never
+sent to NASA POWER. The API checks that they are future, ordered, and
+non-overlapping, but does not treat user-entered dates as a reviewed
+crop/community calendar. Until a sourced calendar is available, the generated
+slots have unknown calendar status and candidate suitability remains under
+review. A missing or incomparable criterion continues to withhold the overall
+rank under Product Decision 6. The provisional crop evidence and its limits are
+recorded in the [NY-8 crop-by-criterion matrix](../../analysis_docs/research/ny-8-crop-criterion-evidence-matrix.md).
+
+`plot_reference` is a short safe identifier; coordinates, owner IDs, crop
+rules, and weights are not accepted. The server uses the authenticated user's
+farm priorities and supported-location reference point. NY-20 stores the exact
 candidate-generation and scoring outputs; the route returns the saved result.
 Because this POST may retrieve snapshots and always saves a result, browser
 callers using the cookie session must send the CSRF token in `X-CSRF-Token`.
 
 This is an orchestration contract, not a claim that the current evidence can
-rank rotations. Reported history is provisional, no locally reviewed planting
-calendar is asserted by the request, the area-level candidate crop records have
-unknown suitability, and the farm profile lacks labor/soil/yield evidence. The
-four criteria therefore remain `not_assessed`, and the overall rank is
-withheld. No unsupported hard agronomic rule is applied. When NASA data is
-unavailable, null indicators and the unavailable status remain visible in the
-saved result; values are never fabricated.
+rank rotations. Farmer-reported history, future slots, and desk-research crop
+traits retain their provisional or unknown status. The [evidence matrix](../../analysis_docs/research/ny-8-crop-criterion-evidence-matrix.md)
+shows which criterion findings are crop- or sequence-specific and why they do
+not yet form a comparable basis for every option. No unsupported hard
+agronomic rule is applied. When NASA data is unavailable, null indicators and
+the unavailable status remain visible in the saved result; values are never
+fabricated.
 
 The current NY-8 generator enumerates all 6³ combinations (216 sequences) and
 does not choose a top-three shortlist. Until a reviewed selection method is

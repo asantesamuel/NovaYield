@@ -71,6 +71,13 @@ NY-15's safe rules still apply: enforce three consecutive events on the same plo
 
 ## Criterion evidence and ranking readiness
 
+The four criteria are research-backed dimensions. `not_assessed` below means
+that this area archetype lacks a comparable, option-specific rating basis; it
+does not mean the criteria were omitted. See the [provisional crop-by-criterion
+evidence matrix](ny-8-crop-criterion-evidence-matrix.md) for public evidence,
+confidence, transfer limits, and what is needed before using a finding in a
+ranking.
+
 | PRD criterion | Public evidence available | Profile status for scoring |
 | --- | --- | --- |
 | Water resilience | Local studies document rain-fed farming and a serious 2020 minor-season maize failure; NASA daily indicator values have not yet been retrieved for these points/windows. A municipal survey statistic does not supply this profile's water access or crop-specific water response. | `not_assessed` |

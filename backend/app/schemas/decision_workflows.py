@@ -99,14 +99,14 @@ class EnvironmentalContextResponse(BaseModel):
     warnings: tuple[str, ...] = ()
 
 
-class ReportedPlantingSeason(BaseModel):
-    """One farmer-reported historical planting period used as a NASA query window."""
+class HistoricalSeasonReport(BaseModel):
+    """A past farmer-reported season and its separate NASA analysis window."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     season_label: SeasonLabel
-    window_start: date
-    window_end: date
+    analysis_start_date: date
+    analysis_end_date: date
     planted_crop: CropId | None = None
 
     @field_validator("planted_crop")
@@ -120,40 +120,84 @@ class ReportedPlantingSeason(BaseModel):
         return value
 
     @model_validator(mode="after")
-    def validate_historical_period(self) -> "ReportedPlantingSeason":
-        """Ensure each report can be used by the historical NASA POWER service."""
+    def validate_historical_period(self) -> "HistoricalSeasonReport":
+        """Ensure the NASA window is supported historical data, not a planting slot."""
 
-        if self.window_start < NASA_POWER_START_DATE:
+        if self.analysis_start_date < NASA_POWER_START_DATE:
             raise ValueError("NASA POWER Daily data starts on 1981-01-01")
+        if self.analysis_end_date < self.analysis_start_date:
+            raise ValueError("Analysis end must be on or after its start")
+        if self.analysis_end_date >= datetime.now(UTC).date():
+            raise ValueError("Past-season analysis dates must be in the past")
+        return self
+
+
+class RecommendationSeasonSlot(BaseModel):
+    """One future candidate slot; dates express intent, not a validated calendar."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    season_label: SeasonLabel
+    window_start: date
+    window_end: date
+
+    @model_validator(mode="after")
+    def validate_future_window(self) -> "RecommendationSeasonSlot":
+        """Require a future interval, while leaving crop/calendar suitability unknown."""
+
+        if self.window_start <= datetime.now(UTC).date():
+            raise ValueError("Recommendation season windows must be in the future")
         if self.window_end < self.window_start:
-            raise ValueError("Season end must be on or after its start")
-        if self.window_end >= datetime.now(UTC).date():
-            raise ValueError("Reported planting seasons must be in the past")
+            raise ValueError("Recommendation season end must be on or after its start")
         return self
 
 
 class RotationRecommendationRequest(BaseModel):
-    """Submit three past seasons for the same plot; never submit owner or coordinates."""
+    """Separate reported history from future candidate slots; omit owner and coordinates."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     plot_reference: PlotReference = Field(
         description="The farmer's own label for the one plot represented by all three seasons."
     )
-    planting_seasons: tuple[ReportedPlantingSeason, ...]
+    historical_seasons: tuple[HistoricalSeasonReport, ...] = Field(
+        description=(
+            "Three past farmer-reported seasons. Their date ranges are used only for NASA POWER "
+            "analysis and their crops may supply the current-practice baseline."
+        )
+    )
+    recommendation_seasons: tuple[RecommendationSeasonSlot, ...] = Field(
+        description=(
+            "Three future ordered planting slots for candidate generation. These are not NASA "
+            "analysis windows and do not assert a reviewed crop calendar."
+        )
+    )
     force_refresh: bool = False
 
     @model_validator(mode="after")
-    def validate_three_chronological_seasons(self) -> "RotationRecommendationRequest":
-        """Require exactly three chronological, non-overlapping historical periods."""
+    def validate_season_groups(self) -> "RotationRecommendationRequest":
+        """Require three ordered historical reports and three separate future slots."""
 
-        if len(self.planting_seasons) != 3:
-            raise ValueError("Provide exactly three past planting seasons for one plot")
+        if len(self.historical_seasons) != 3:
+            raise ValueError("Provide exactly three past farmer-reported seasons")
+        if len(self.recommendation_seasons) != 3:
+            raise ValueError("Provide exactly three future recommendation seasons")
+
         for previous, following in zip(
-            self.planting_seasons,
-            self.planting_seasons[1:],
+            self.historical_seasons,
+            self.historical_seasons[1:],
+            strict=False,
+        ):
+            if following.analysis_start_date <= previous.analysis_end_date:
+                raise ValueError("Past analysis periods must be chronological and non-overlapping")
+
+        for previous, following in zip(
+            self.recommendation_seasons,
+            self.recommendation_seasons[1:],
             strict=False,
         ):
             if following.window_start <= previous.window_end:
-                raise ValueError("Planting seasons must be chronological and non-overlapping")
+                raise ValueError(
+                    "Future recommendation slots must be chronological and non-overlapping"
+                )
         return self

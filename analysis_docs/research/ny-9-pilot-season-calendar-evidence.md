@@ -55,6 +55,7 @@ The public profile has no known plot history. Its baseline must remain absent. F
 - Keep the source, location scope, publication/study year, date window, and provisional/reviewed status with each calendar record.
 - Resolve a supported `location_key` server-side. Do not expose the catalog coordinates in API responses or diagnostic logs.
 - Keep calendar windows separate from NASA snapshot identity and from farmer-reported planting history. Use NY-6 for reusable NASA data and NY-7 for indicator calculation.
+- In NY-9's recommendation request, keep past farmer-reported seasons/NASA analysis periods separate from the three future recommendation slots passed to NY-8. Never reuse a past NASA period as a future planting-event window.
 - Do not synthesize missing crop windows, farmer history, or three-event baselines. Preserve unknown fields and return client-safe `needs_review` or unavailable states.
 - Do not label seasonal precipitation as farm water availability or interpret temperature as good/bad for a crop without an approved, sourced crop rule.
 - Use historical NASA observations as environmental context. They are not future weather forecasts.

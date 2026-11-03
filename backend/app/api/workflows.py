@@ -178,26 +178,26 @@ def create_workflow_router(current_active_user: Callable[..., User]) -> APIRoute
             location_repository=location_repository,
         )
 
-        event_slots: list[PlantingEventSlot] = []
-        environmental_periods: list[RetrievedEnvironmentalPeriod] = []
-        for order, season in enumerate(request_body.planting_seasons, start=1):
-            event_slots.append(
-                PlantingEventSlot(
-                    event_id=f"farmer-reported-season-{order}",
-                    order=order,
-                    plot_id=request_body.plot_reference,
-                    season_label=season.season_label,
-                    window_start=season.window_start,
-                    window_end=season.window_end,
-                    # Farmer history identifies what was reported, not a reviewed crop calendar.
-                    calendar_status="unknown",
-                )
+        event_slots = tuple(
+            PlantingEventSlot(
+                event_id=f"future-recommendation-season-{order}",
+                order=order,
+                plot_id=request_body.plot_reference,
+                season_label=slot.season_label,
+                window_start=slot.window_start,
+                window_end=slot.window_end,
+                # User-selected future dates are not a source-reviewed crop calendar.
+                calendar_status="unknown",
             )
+            for order, slot in enumerate(request_body.recommendation_seasons, start=1)
+        )
+        environmental_periods: list[RetrievedEnvironmentalPeriod] = []
+        for season in request_body.historical_seasons:
             environmental_periods.append(
                 await _retrieve_environmental_period(
                     location=location,
-                    start_date=season.window_start,
-                    end_date=season.window_end,
+                    start_date=season.analysis_start_date,
+                    end_date=season.analysis_end_date,
                     season_label=season.season_label,
                     crop=season.planted_crop,
                     snapshot_service=snapshot_service,
@@ -205,7 +205,7 @@ def create_workflow_router(current_active_user: Callable[..., User]) -> APIRoute
                 )
             )
 
-        reported_crops = tuple(season.planted_crop for season in request_body.planting_seasons)
+        reported_crops = tuple(season.planted_crop for season in request_body.historical_seasons)
         current_practice = None
         if all(crop_id is not None for crop_id in reported_crops):
             current_practice = CurrentPractice(
@@ -214,10 +214,12 @@ def create_workflow_router(current_active_user: Callable[..., User]) -> APIRoute
             )
 
         generation_request = RotationGenerationRequest(
-            planting_events=tuple(event_slots),
+            planting_events=event_slots,
             candidate_crops=MVP_CROP_CANDIDATES,
             sequence_evidence_status="provisional",
-            sequence_evidence_source="Farmer-reported past seasons supplied to NY-9.",
+            sequence_evidence_source=(
+                "Farmer-selected future recommendation slots; calendar continuity is unvalidated."
+            ),
             current_practice=current_practice,
         )
         generated = generate_rotation_candidates(generation_request)

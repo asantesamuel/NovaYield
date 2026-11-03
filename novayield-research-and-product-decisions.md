@@ -15,7 +15,7 @@ The Product Owner finalized the direction for nine research questions on 29 Octo
 - **Season windows:** Provisional, sourced windows may be shown with clear labels. Do not activate calendar-dependent agronomic rules or present definitive rankings as validated until relevant calendars are reviewed.
 - **NASA POWER:** Request daily `PRECTOTCORR`, `T2M`, and `T2M_MAX` in UTC and evaluate all three indicators. Use the reliable two if an indicator fails response metadata/coverage checks; document the reason. Exact metadata at selected points still needs validation.
 - **Agronomic rules:** Data-integrity checks can be enforced. Repeated-crop/family bans, nitrogen credits, disease breaks, and crop-specific water/soil thresholds remain inactive or explicitly provisional until locally reviewed.
-- **Comparison:** Use the PRD's four criteria, equal 25% default weights with simple farmer adjustment, qualitative ratings, and equal-versus-selected-weight sensitivity explanation. Show partial evidence but withhold an overall rank when evidence is missing or incomparable.
+- **Comparison:** A Product Owner scope change on 3 November 2026 removes labour feasibility from rotation scoring. Score the remaining three criteria—water resilience, soil-health potential, and yield-stability proxy—with equal one-third defaults and farmer adjustment among those three. Use qualitative ratings and withhold an overall rank when evidence is missing or incomparable.
 - **Data lifecycle:** Refresh recent NASA windows after the documented publication latency, reuse older matching snapshots absent an explicit refresh/correction, preserve cached data on refresh failure, and show its period/retrieval status.
 - **Validation status:** Reviewer engagement is deferred. Proceed on desk research with pilot-specific agronomic assumptions visibly provisional and subject to future review; do not describe them as locally validated.
 
@@ -222,11 +222,12 @@ Approval of a product direction does not convert desk research into local agrono
 | 2 | Start with maize, cowpea, groundnut, cassava, yam, and rice as candidate crop records. | Crop list is finalized; unverified crop traits and eligibility remain provisional. |
 | 3 | Allow sourced, clearly labelled provisional crop/community season windows; do not activate dependent agronomic rules or describe definitive rankings as locally validated until review. | Product behavior is finalized; local calendar contents remain provisional. |
 | 4 | Evaluate seasonal precipitation total, mean daily `T2M`, and mean daily `T2M_MAX`; expose all three when metadata and coverage checks pass, otherwise use the reliable two and document the exclusion. | Indicator policy is finalized; live metadata/coverage validation remains required. |
-| 5 | Use equal 25% criterion weights by default and provide simple, visible farmer priority adjustment; disclose that weights are provisional. | Product policy is finalized; precise UI control details are implementation work. |
+| 5 | Use equal default weights across the active comparison criteria and provide simple, visible farmer priority adjustment; disclose that weights are provisional. | Updated by the explicit scope change recorded in Decision 10 below. |
 | 6 | Show available per-criterion comparisons, but withhold an overall rank when evidence is missing or incomparable; do not invent a numeric evidence threshold. | Finalized. |
 | 7 | Use qualitative ratings initially; explain equal-weight versus farmer-selected results, flag weight-sensitive rankings, and do not add presets in the initial MVP. | Finalized. |
 | 8 | Refresh recent NASA data after the expected source publication latency; reuse older matching historical snapshots unless explicitly refreshed or covered by a documented correction; preserve valid cache on refresh failure and show provenance/freshness. | Finalized. |
 | 9 | Proceed using desk research because expert review is not expected soon; mark pilot-specific agronomic assumptions and rules provisional and subject to future expert/farmer validation. | Explicitly provisional, pending future review and validation. |
+| 10 | Remove labour demand/feasibility from rotation scoring; use only water resilience, soil-health potential, and yield-stability proxy, with equal one-third defaults. | Finalized scope change on 3 November 2026; equal normalization is an implementation interpretation. |
 
 ### Decision 1 — Pilot area and reference locations
 
@@ -238,7 +239,7 @@ Approval of a product direction does not convert desk research into local agrono
 
 **Finalized decision:** The initial candidate records are maize, cowpea, groundnut, cassava, yam, and rice. This is the agreed substitution for the PRD's illustrative examples of sorghum and soybean; it does not change the PRD's requirement for four to six locally grounded crops.
 
-**Provisional elements:** Candidate inclusion is not proof that a crop is suitable for every pilot location, season, variety, or rotation. Keep unsupported traits `unknown`/`not_assessed`; do not infer nitrogen credit, drought tolerance, water need, labor feasibility, or recommendation eligibility from crop names alone. Model rice production system explicitly where used.
+**Provisional elements:** Candidate inclusion is not proof that a crop is suitable for every pilot location, season, variety, or rotation. Keep unsupported traits `unknown`/`not_assessed`; do not infer nitrogen credit, drought tolerance, water need, or recommendation eligibility from crop names alone. Model rice production system explicitly where used.
 
 ### Decision 3 — Unvalidated season windows
 
@@ -250,7 +251,7 @@ Approval of a product direction does not convert desk research into local agrono
 
 ### Decision 5 — Default weights and farmer priorities
 
-**Finalized decision:** Begin with four equal weights of 25% across water resilience, soil-health potential, yield-stability proxy, and labor feasibility. Let farmers adjust relative priorities through a simple visible control whose values are normalized transparently; show the resulting weights. These are provisional product defaults, not scientifically validated optimum weights. A farmer's non-negotiable condition is a hard constraint only when it is explicitly captured and its rule is evidence-backed.
+**Finalized decision, updated by Decision 10:** Begin with equal weights across water resilience, soil-health potential, and yield-stability proxy (one third each after normalization). Let farmers adjust relative priorities through a simple visible control whose values are normalized transparently; show the resulting weights. These are provisional product defaults, not scientifically validated optimum weights. A farmer's non-negotiable condition is a hard constraint only when it is explicitly captured and its rule is evidence-backed.
 
 ### Decision 6 — Minimum evidence for an overall rank
 
@@ -267,13 +268,19 @@ Approval of a product direction does not convert desk research into local agrono
 ### Decision 9 — Expert review and provisional assumptions
 
 **Provisional decision:** Expert review is deferred because it is not expected soon. Continue on desk research, but mark pilot-specific assumptions and rules as provisional until an agronomist, extension officer, knowledgeable local advisor, or relevant farmers can review them. Keep crop/calendar-dependent hard exclusions, nitrogen credits, disease break intervals, and crop-specific water/soil thresholds inactive unless their evidence is sufficiently specific and validated. This is a temporary evidence status, not a permanent waiver of validation; update the research record when review occurs.
+
+### Decision 10 — Remove labour feasibility from rotation scoring
+
+**Finalized scope change (3 November 2026):** Do not include labour demand or labour feasibility as a rotation comparison criterion in the MVP. The active criteria are water resilience, soil-health potential, and yield-stability proxy. Preserve the previously agreed equal-weight approach by normalizing the defaults equally across those three criteria (one third each); farmer-adjustable priorities cover only those three. This is an implementation interpretation of the approved removal, not an agronomic claim.
+
+This explicitly supersedes the PRD's fourth comparison criterion for MVP implementation; it does not rewrite the PRD source text. Remove the labour field from scoring contracts and user-facing rotation results when that implementation subtask is approved. Existing research notes about labour remain historical source context only and must not influence scores or ranking.
 ## 7. Implementation Implications
 
 1. **Phase 0 — approved direction and validation:** Use the finalized pilot/crop/indicator/ranking decisions in §6. Select the public/community reference points and gather local calendar evidence. Expert review is deferred; mark pilot-specific agronomic assumptions provisional until review becomes available.
 2. **Phase 1 — data contract:** Request `PRECTOTCORR`, `T2M`, and `T2M_MAX` in UTC from selected public/community point(s); verify actual metadata; keep raw values, fill/missingness, source, units, resolution, period, and retrieval provenance together. Keep any sample/demo dataset explicitly distinguishable from live-derived cache.
 3. **Phase 2 — crop/plot model:** Store candidate crops with evidence/validation states. Represent planting events by plot and locally defined season, not calendar year. Record system-specific information such as rice ecology and residue handling when required by a rule.
 4. **Phase 3 — rules:** Implement data-integrity gates and `needs_review` behavior first. Keep provisional agronomic rules as warnings/research notes; only approved, scoped rules may exclude a sequence. NY-8's [provisional crop-by-criterion evidence matrix](analysis_docs/research/ny-8-crop-criterion-evidence-matrix.md) records source scope, confidence, transfer limits, and unresolved comparisons for the six MVP crops.
-5. **Phase 4 — scoring:** Apply hard constraints before ranking. Preserve four criteria from PRD FR-06. Carry missingness as `not_assessed`, not zero; preserve confidence separately from rating. Save weights, criteria explanations, rule version, and data state. The existence of desk research for a criterion does not automatically assess every candidate; do not rank if the approved evidence policy says comparability is insufficient.
+5. **Phase 4 — scoring:** Apply hard constraints before ranking. For MVP implementation, use the three active criteria in Decision 10; this is an approved scope change from the four criteria in PRD FR-06. Carry missingness as `not_assessed`, not zero; preserve confidence separately from rating. Save weights, criteria explanations, rule version, and data state. The existence of desk research for a criterion does not automatically assess every candidate; do not rank if the approved evidence policy says comparability is insufficient.
 6. **Phase 5 — user explanation:** Show the source/date window, live/cached/sample status, per-indicator coverage, grid limitations, provisional calendars, assumptions, criteria/weights, benefit, trade-off, and reasons for exclusions/rank. A change in input/priority must reproduce an explainable change.
 7. **Validation before “done”:** Run a real NASA response at approved point(s); compare with suitable local/GMet records if accessible; review crop/calendar/rules with local expertise; exercise missing/partial/live/cached/sample fallback cases; and check that no output claims field-level measurement or validated yield.
 

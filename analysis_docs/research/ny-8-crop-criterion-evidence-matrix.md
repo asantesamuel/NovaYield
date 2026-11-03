@@ -9,10 +9,12 @@ prepared: 2026-11-03
 
 ## Purpose and evidence status
 
-This matrix maps public research to the six approved MVP crops and the four
-PRD comparison criteria. The criteria themselves are research-backed. The
-matrix records what the cited sources can support for a crop or a particular
-crop relationship, how confidently that evidence transfers to the provisional
+This matrix maps public research to the six approved MVP crops and the three
+active rotation-scoring criteria. The Product Owner removed labour feasibility
+from MVP scoring on 3 November 2026; the labor material below is retained only
+as historical research context and must not affect ratings or rank. The matrix
+records what the cited sources can support for a crop or a particular crop
+relationship, how confidently that evidence transfers to the provisional
 Ejura-Sekyedumase pilot, and what remains unknown.
 
 **This is not a score table.** A source can support a crop trait without
@@ -23,8 +25,8 @@ provisional for NovaYield until local review. Keep `not_assessed` where the
 available evidence does not provide a comparable rating basis.
 
 The underlying area profile is not a real farm. It has no field soil test,
-residue-management record, crop variety, farm labor capacity, irrigation
-measurement, or documented three-season plot history. The historical NASA
+residue-management record, crop variety, irrigation measurement, or documented
+three-season plot history. The historical NASA
 periods in the demo profile are environmental-analysis windows, not future
 planting slots. See the [NY-9 season-calendar handoff](ny-9-pilot-season-calendar-evidence.md).
 
@@ -99,7 +101,7 @@ criterion and highlights genotype-by-environment effects. It does not create
 comparable relative ratings for the six MVP crops or their three-season
 sequences. Keep this criterion `not_assessed` for the current demo profile.
 
-## Labor feasibility
+## Archived research: labor feasibility (excluded from scoring)
 
 Published work can describe crop-operation labor demand. **Feasibility** also
 requires knowing the farm's available household/hired labor, machinery or
@@ -115,22 +117,25 @@ capture those inputs.
 | **Yam** | IFPRI reports system-dependent labor demand, with mound construction a substantial land-preparation task; yam generally demanded more labor than maize and rice but less than cassava in the cited systems. | Moderate source confidence for the studied systems; low farm-level feasibility confidence. Variety, mound method, plot, labor availability, and mechanization matter. [IFPRI Ghana labor study](https://hdl.handle.net/10568/154236). |
 | **Rice** | IFPRI describes rice labor across systems and notes substantial land-preparation/harvesting labor; rice ecology and establishment/harvest methods differ. | Moderate source confidence for the studied systems; low pilot transferability until the farm's upland/lowland/irrigated system and labor capacity are known. [IFPRI Ghana labor study](https://hdl.handle.net/10568/154236); [Ghana rice strategy](https://www.jica.go.jp/english/our_work/thematic_issues/agricultural/pdf/ghana_en.pdf). |
 
-**Scoring implication:** Labor-demand context may be displayed with its source and
-system, but it cannot establish farm-specific labor feasibility without farm
-capacity inputs. Do not assign a farm feasibility rating from crop name alone.
+**Current product treatment:** This research is retained for traceability only.
+Following Product Owner Decision 10, NovaYield must not return, weight, or rank
+rotation options using labor demand or labor feasibility.
 
 ## Cross-criterion ranking readiness
+
+The provisional rule proposal is documented in
+[NY-8 Provisional Agronomic Rotation Rules](ny-8-provisional-rotation-rules.md).
 
 | Criterion | What can be supported now | What blocks comparable option ratings | Current profile status |
 | --- | --- | --- | --- |
 | Water resilience | General crop water need/sensitivity and selected Ghana water-use studies, with crop/system caveats. | Comparable source/variety/window inputs for all candidate crops, actual NASA metadata/coverage, and a defensible relation between rainfall context and crop water response. | `not_assessed` for ranking |
 | Soil-health potential | Specific legume/residue effects on following maize under measured treatments. | Plot soil/residue/fertility state and equivalent evidence for the other crop sequences; no universal legume bonus. | Partial research evidence; no complete comparable ranking basis |
 | Yield-stability proxy | Crop- or variety-specific climate/yield and multi-environment studies. | Common outcome definition, named varieties, matching pilot environments, and comparable multi-season sequence data across candidates. | `not_assessed` for ranking |
-| Labor feasibility | Published operation requirements for several crops/systems. | Farm labor availability, machinery/service access, area, timing, and comparable management assumptions. | `not_assessed` for farm feasibility |
+| Labor feasibility | Archived research only; excluded from active MVP scoring by Product Owner Decision 10. | Not applicable to current rotation ranking. | Excluded |
 
 Under approved Product Decision 6, show useful criterion-level evidence where
-the assessment basis matches, and withhold an overall rank when any criterion
-needed to compare the options is missing or incomparable. A provisional source
+the assessment basis matches, and withhold an overall rank when any of the
+three active criteria needed to compare the options is missing or incomparable. A provisional source
 label does not cure missing data. If later evidence supports a comparison, save
 its citation, scope, confidence, assumption, rating, and comparison basis with
 the result; label the resulting rank provisional until local review.

@@ -27,7 +27,7 @@ The Product Owner's approved decisions in [the NovaYield research and product-de
 | Plot irrigation access | Unknown; the scenario is labelled `rainfed_archetype` only for area-level context | The 88% survey result does not identify the irrigation status of any individual farm. Do not silently turn the group statistic into a farmer answer. |
 | Candidate crop records | Maize, cowpea, groundnut, cassava, yam, and rice | These are the approved MVP candidates. Public municipal and study sources confirm crop presence, not every crop's traits, suitability, or eligibility for every sequence. |
 | Plot's previous crops / current practice | Unknown | The published sources describe area practices and survey responses, not a complete three-event history for a particular plot. Therefore this profile has no asserted current-practice baseline. |
-| Farmer priorities | Product default: 25% each for water resilience, soil-health potential, yield-stability proxy, and labor feasibility | This is the approved neutral product default. It is not a preference reported by a surveyed farmer. |
+| Farmer priorities | Product default: equal weights across water resilience, soil-health potential, and yield-stability proxy (one third each) | This is the approved neutral product default after labour feasibility was removed from scoring. It is not a preference reported by a surveyed farmer. |
 
 ### Candidate public reference points
 
@@ -71,28 +71,28 @@ NY-15's safe rules still apply: enforce three consecutive events on the same plo
 
 ## Criterion evidence and ranking readiness
 
-The four criteria are research-backed dimensions. `not_assessed` below means
+The three active criteria are research-backed dimensions. `not_assessed` below means
 that this area archetype lacks a comparable, option-specific rating basis; it
 does not mean the criteria were omitted. See the [provisional crop-by-criterion
 evidence matrix](ny-8-crop-criterion-evidence-matrix.md) for public evidence,
 confidence, transfer limits, and what is needed before using a finding in a
 ranking.
 
-| PRD criterion | Public evidence available | Profile status for scoring |
+| Active criterion / scope note | Public evidence available | Profile status for scoring |
 | --- | --- | --- |
 | Water resilience | Local studies document rain-fed farming and a serious 2020 minor-season maize failure; NASA daily indicator values have not yet been retrieved for these points/windows. A municipal survey statistic does not supply this profile's water access or crop-specific water response. | `not_assessed` |
 | Soil-health potential | Broad municipal soil descriptions and research on legume/residue effects exist, but no soil test or plot-specific residue/management history exists for this profile. | `not_assessed` |
 | Yield-stability proxy | The local study documents a maize-specific failure and reports farmers' experience; it does not provide comparable stability evidence for these candidate three-season options. | `not_assessed` |
-| Labor feasibility | The local study describes maize operations among respondents (mechanized ploughing/harvesting; manual sowing/weeding), but it does not provide comparable operation/labor data for all six candidates or this farm. | `not_assessed` |
+| Labour feasibility | Removed from rotation scoring by Product Owner Decision 10; historical labour evidence is excluded from the score. | Excluded |
 
-Under the approved missing-evidence policy, this profile **must not receive an overall score or rank**. It can verify the input contract, provenance labels, unknown-data behavior, hard data-integrity gates, and withholding of a rank. It cannot truthfully verify NY-8's full acceptance criterion for three *ranked* options. That criterion needs a profile with comparable, adequately sourced evidence for all four criteria, plus an actual NASA response; the profile must not be completed by inventing farm history, soil texture, crop traits, labor values, or scores.
+Under the approved missing-evidence policy, this profile **must not receive an overall score or rank**. It can verify the input contract, provenance labels, unknown-data behavior, hard data-integrity gates, and withholding of a rank. It cannot truthfully verify NY-8's full acceptance criterion for three *ranked* options. That criterion needs a profile with comparable, adequately sourced evidence for all three active criteria, plus an actual NASA response; the profile must not be completed by inventing farm history, soil texture, crop traits, or scores.
 
 ## Recommended use for NY-8
 
 - Use this profile as an evidence-aware integration/test scenario and assert that unknown or incomparable evidence yields partial criterion output with no overall rank.
 - Preserve the cited rotation findings as evidence with their scope limits; do not turn them into unverified three-event sequences or universal hard agronomic rules.
 - Test ranking mechanics separately with clearly artificial unit-test values, labelled as synthetic test data and never reused as a public recommendation/demo result.
-- Before claiming NY-8 acceptance, either obtain additional public evidence that is comparable across the four criteria and an actual NASA response, or revisit the acceptance/demo scope with the Product Owner. Do not treat this profile as sufficient for ranked recommendations.
+- Before claiming NY-8 acceptance, either obtain additional public evidence that is comparable across the three active criteria and an actual NASA response, or revisit the acceptance/demo scope with the Product Owner. Do not treat this profile as sufficient for ranked recommendations.
 
 ## References
 

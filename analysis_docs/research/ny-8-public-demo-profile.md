@@ -55,6 +55,8 @@ The three windows are consecutive named seasonal periods for repeatable historic
 
 The intended public data contract is the NY-13 / NASA POWER Daily Point request: `PRECTOTCORR`, `T2M`, and `T2M_MAX`, `community=AG`, JSON, inclusive dates, and explicit `time-standard=UTC`. **No API response values are stored in this profile yet.** The browsing tool could confirm NASA's API contract but could not retrieve the live JSON response for these query URLs. Before using numeric values, run the existing NY-5 client at the selected public points, capture the response, and verify each parameter's units, fill value, source, coverage, and spatial resolution from NASA's response metadata. Do not treat this evidence file as a cache or runtime-data store.
 
+For the later NY-9 API integration, use the [NY-9 pilot season-calendar evidence handoff](ny-9-pilot-season-calendar-evidence.md) to distinguish these historical weather-analysis periods from crop planting windows and actual farm history. The periods below remain research query windows; they are not NY-8 planting-event slots or planting advice.
+
 ## Public evidence relevant to rotation patterns
 
 The sources support some rotation relationships, but **do not establish an ordered three-event history on a named plot for this profile**:

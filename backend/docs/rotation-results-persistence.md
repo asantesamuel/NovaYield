@@ -2,7 +2,7 @@
 
 ## Boundary
 
-`app.models.rotation_results` owns the Beanie document and its collection index. `app.repositories.rotation_results` inserts and retrieves already-generated NY-8 results. The feature does not score, call NASA, or orchestrate generation; NY-9 will call the save method and mount the feature router in its integration work.
+`app.models.rotation_results` owns the Beanie document and its collection index. `app.repositories.rotation_results` inserts and retrieves already-generated NY-8 results. The feature does not score, call NASA, or orchestrate generation; NY-9 calls the save method and composes the feature router into the versioned API.
 
 ## Stored record
 

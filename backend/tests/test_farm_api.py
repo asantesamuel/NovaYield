@@ -12,7 +12,6 @@ from pydantic import SecretStr
 from app.core.config import Settings
 from app.farms.location_catalog import SUPPORTED_LOCATION_SEEDS
 from app.farms.routes import (
-    create_farm_router,
     get_farm_repository,
     get_supported_location_repository,
 )
@@ -202,10 +201,6 @@ def farm_api_factory(monkeypatch: pytest.MonkeyPatch) -> Any:
         app = create_app(
             settings,
             mongo_connection_factory=lambda _settings: FakeMongoConnection(),
-        )
-        app.include_router(
-            create_farm_router(app.state.current_active_user),
-            prefix=settings.api_v1_prefix,
         )
         app.dependency_overrides[get_user_database] = lambda: user_database
         app.dependency_overrides[get_access_token_database] = lambda: token_database

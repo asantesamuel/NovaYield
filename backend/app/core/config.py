@@ -29,7 +29,17 @@ class Settings(BaseSettings):
     auth_session_lifetime_seconds: int = Field(default=3_600, gt=0)
     auth_cookie_secure: bool = True
     csrf_secret: SecretStr
+    location_hash_secret: SecretStr
     csrf_cookie_domain: str | None = None
+
+    @field_validator("location_hash_secret")
+    @classmethod
+    def validate_location_hash_secret(cls, value: SecretStr) -> SecretStr:
+        """Require stable key material for privacy-preserving snapshot identities."""
+
+        if len(value.get_secret_value().encode("utf-8")) < 32:
+            raise ValueError("Location hash secret must contain at least 32 bytes")
+        return value
 
     @model_validator(mode="after")
     def validate_csrf_secret(self) -> "Settings":

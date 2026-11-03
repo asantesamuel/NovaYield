@@ -13,7 +13,11 @@ The request key includes NASA POWER provider/service/endpoint, `AG` community, n
 
 Coordinates are not rounded to a presumed grid. NASA POWER exposes variables at their native source resolutions, and the requested precipitation and temperature parameters do not necessarily share one grid. Until returned grid identity can be established safely for the complete parameter set, exact-point identity avoids treating nearby farms as interchangeable. This may miss some possible same-grid reuse; it does not falsely merge locations.
 
-The HMAC secret is supplied to the identity builder and must be stable across app instances for cache reuse. It must contain at least 32 bytes. Never log or store it. Rotating it intentionally changes all derived keys, which makes old records cache misses until a separately defined retention/cleanup policy handles them. Deployment configuration for this secret is a follow-up integration task; this model does not invent a development secret.
+The HMAC secret is supplied to the identity builder and must be stable across app instances for cache reuse. It must contain at least 32 bytes. Never log or store it. Rotating it intentionally changes all derived keys, which makes old records cache misses until a separately defined retention/cleanup policy handles them. NY-9 reads it from `NOVAYIELD_LOCATION_HASH_SECRET`; provide a stable private value in the backend environment, separate from the CSRF key. The committed `.env.example` documents how to generate a local value without containing a real secret.
+
+## Application resource lifecycle
+
+The FastAPI lifespan creates one reusable `httpx.AsyncClient` for NASA POWER requests, wraps it in the NY-5 client/service, and shares one NY-6 snapshot service through app state. The lifespan closes the HTTP client and MongoDB connection at shutdown. The snapshot service receives the stable location-hash key from settings; it does not persist raw coordinates.
 
 ## Persisted document
 
@@ -43,4 +47,4 @@ The service accepts an injectable per-source refresh policy. Configure one only 
 
 The team-provided NY-13 specification is preserved in [`analysis_docs/research/ny-13-nasa-power-input-specification.md`](../../analysis_docs/research/ny-13-nasa-power-input-specification.md). The pilot point and crop-specific seasonal windows remain provisional pending local validation. This module does not add a route, authorize farm access, store farm IDs, or decide agronomic recommendations. Later authenticated farm workflows must authorize access before requesting or returning a snapshot.
 
-The current NY-5 result carries season label, crop, and calendar version, but it does not carry the local municipality/community label. Add that context only when the farm/environmental service has a source-of-truth field; do not infer it from coordinates or NASA's `AG` API community. The NY-6 service/repository are not yet exposed through an authenticated farm API route; downstream route work must enforce farm ownership before accessing a snapshot.
+The current NY-5 result carries season label, crop, and calendar version, but it does not carry the local municipality/community label. Add that context only when the farm/environmental service has a source-of-truth field; do not infer it from coordinates or NASA's `AG` API community. NY-9's composition subtask establishes the authenticated route boundary; the environmental route will use owner-scoped farm access before asking NY-6 for a snapshot.

@@ -32,6 +32,8 @@ def test_create_app_composes_versioned_feature_routes_without_global_router_stat
         "/api/v1/farms/{farm_id}",
         "/api/v1/farms/{farm_id}/rotation-results",
         "/api/v1/farms/{farm_id}/rotation-results/{result_id}",
+        "/api/v1/farms/{farm_id}/environmental-context",
+        "/api/v1/farms/{farm_id}/rotation-recommendations",
         "/api/v1/auth/register",
         "/api/v1/auth/login",
         "/api/v1/auth/logout",
@@ -41,6 +43,25 @@ def test_create_app_composes_versioned_feature_routes_without_global_router_stat
     assert set(first_paths["/api/v1/farms"]) == {"get", "post"}
     assert set(first_paths["/api/v1/farms/{farm_id}"]) == {"get", "patch"}
     assert set(first_paths["/api/v1/farms/{farm_id}/rotation-results"]) == {"get"}
+    assert set(first_paths["/api/v1/farms/{farm_id}/environmental-context"]) == {"post"}
+    assert set(first_paths["/api/v1/farms/{farm_id}/rotation-recommendations"]) == {"post"}
+
+    environmental_operation = first_paths["/api/v1/farms/{farm_id}/environmental-context"]["post"]
+    assert environmental_operation["requestBody"]["content"]["application/json"]["schema"][
+        "$ref"
+    ].endswith("/EnvironmentalContextRequest")
+    assert {"200", "401", "403", "404", "422", "503"} <= environmental_operation["responses"].keys()
+    assert environmental_operation["security"]
+
+    rotation_operation = first_paths["/api/v1/farms/{farm_id}/rotation-recommendations"]["post"]
+    assert rotation_operation["requestBody"]["content"]["application/json"]["schema"][
+        "$ref"
+    ].endswith("/RotationRecommendationRequest")
+    assert rotation_operation["responses"]["201"]["content"]["application/json"]["schema"][
+        "$ref"
+    ].endswith("/RotationResultResponse")
+    assert {"401", "403", "404", "422", "503"} <= rotation_operation["responses"].keys()
+    assert rotation_operation["security"]
 
 
 def test_location_hash_secret_requires_at_least_32_bytes() -> None:
@@ -50,4 +71,3 @@ def test_location_hash_secret_requires_at_least_32_bytes() -> None:
             csrf_secret=SecretStr(TEST_CSRF_SECRET),
             location_hash_secret=SecretStr("too-short"),
         )
-

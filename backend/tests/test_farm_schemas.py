@@ -6,7 +6,6 @@ from pydantic import ValidationError
 
 from app.database.registry import load_document_models
 from app.farms.contracts import (
-    DEFAULT_FARMER_PRIORITIES,
     LocationCoordinates,
     default_farmer_priorities,
 )
@@ -85,10 +84,10 @@ def test_location_coordinate_pair_is_required_and_bounded() -> None:
         LocationCoordinates.model_validate({"latitude": 0, "longitude": 181})
 
 
-def test_create_defaults_to_equal_priorities_and_preserves_unknown_inputs() -> None:
+def test_create_keeps_only_supported_farm_inputs_and_preserves_unknowns() -> None:
     profile = FarmCreate.model_validate(valid_profile())
 
-    assert profile.farmer_priorities.model_dump() == DEFAULT_FARMER_PRIORITIES
+    assert "farmer_priorities" not in profile.model_dump()
     assert profile.soil_texture is None
     assert profile.irrigation_access is None
     assert profile.previous_crops is None
@@ -134,7 +133,7 @@ def test_update_requires_changes_and_cannot_clear_required_fields() -> None:
     with pytest.raises(ValidationError):
         FarmUpdate.model_validate({"location_key": None})
     with pytest.raises(ValidationError):
-        FarmUpdate.model_validate({"farmer_priorities": None})
+        FarmUpdate.model_validate({"farmer_priorities": {"water_resilience": 100}})
 
     clear_optional_field = FarmUpdate.model_validate({"soil_texture": None})
     assert clear_optional_field.model_dump(exclude_unset=True) == {"soil_texture": None}

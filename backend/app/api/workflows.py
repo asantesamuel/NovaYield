@@ -9,18 +9,21 @@ from beanie import PydanticObjectId
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pymongo.errors import PyMongoError
 
+from app.decisions.crop_evidence import (
+    ASSESSMENT_VERSION,
+    FarmAssessmentContext,
+    build_crop_evidence_option,
+)
+from app.decisions.crop_profiles import CROP_LIBRARY_VERSION
 from app.decisions.rotation import (
     MVP_CROP_CANDIDATES,
+    ROTATION_RULE_SET_VERSION,
     CurrentPractice,
     PlantingEventSlot,
-    RotationCandidate,
     RotationGenerationRequest,
     generate_rotation_candidates,
 )
 from app.decisions.scoring import (
-    CRITERIA,
-    CriterionEvidence,
-    RotationOptionEvidence,
     ScoringRequest,
     score_rotation_options,
 )
@@ -206,6 +209,7 @@ def create_workflow_router(current_active_user: Callable[..., User]) -> APIRoute
             )
 
         reported_crops = tuple(season.planted_crop for season in request_body.historical_seasons)
+        prior_crop_history = (reported_crops[-1],) if reported_crops[-1] is not None else None
         current_practice = None
         if all(crop_id is not None for crop_id in reported_crops):
             current_practice = CurrentPractice(
@@ -220,17 +224,38 @@ def create_workflow_router(current_active_user: Callable[..., User]) -> APIRoute
             sequence_evidence_source=(
                 "Farmer-selected future recommendation slots; calendar continuity is unvalidated."
             ),
+            prior_crop_history=prior_crop_history,
+            prior_history_source=(
+                "Farmer-reported past season history supplied to NY-9."
+                if prior_crop_history is not None
+                else None
+            ),
             current_practice=current_practice,
         )
         generated = generate_rotation_candidates(generation_request)
         all_indicators = tuple(
             indicator for period in environmental_periods for indicator in period.indicators
         )
+        environmental_context_ready = all(
+            sum(_is_usable_indicator(indicator) for indicator in period.indicators) >= 2
+            for period in environmental_periods
+        )
+        farm_assessment_context = FarmAssessmentContext(
+            location_key=farm.location_key,
+            soil_texture=farm.soil_texture,
+            irrigation_access=farm.irrigation_access,
+        )
         scoring_request = ScoringRequest(
             options=tuple(
-                _unassessed_option(candidate, all_indicators) for candidate in generated.candidates
+                build_crop_evidence_option(
+                    candidate,
+                    all_indicators,
+                    farm_context=farm_assessment_context,
+                    prior_crop_history=prior_crop_history,
+                    environmental_context_ready=environmental_context_ready,
+                )
+                for candidate in generated.candidates
             ),
-            farmer_priorities=farm.farmer_priorities,
         )
         scoring_result = score_rotation_options(scoring_request)
         snapshot_ids = tuple(
@@ -245,6 +270,9 @@ def create_workflow_router(current_active_user: Callable[..., User]) -> APIRoute
             generation_request=generation_request,
             scoring_request=scoring_request,
             environmental_snapshot_ids=snapshot_ids,
+            crop_library_version=CROP_LIBRARY_VERSION,
+            assessment_version=ASSESSMENT_VERSION,
+            rule_set_version=ROTATION_RULE_SET_VERSION,
         )
         try:
             saved = await result_repository.create_for_farm(
@@ -372,53 +400,19 @@ def _environmental_context_response(
     )
 
 
+def _is_usable_indicator(indicator: EnvironmentalIndicator) -> bool:
+    """Count a measured complete/partial value, never an unavailable value, per NY-13."""
+
+    return (
+        indicator.value is not None
+        and indicator.status != "unavailable"
+        and indicator.data_status != "unavailable"
+    )
+
+
 def _public_environmental_error_code(error_code: str | None) -> str | None:
     """Translate internal typed outcomes to stable, client-safe values."""
 
     if error_code is None:
         return None
     return _PUBLIC_ERROR_CODES.get(error_code, "NASA_UPSTREAM_ERROR")
-
-
-def _unassessed_option(
-    candidate: RotationCandidate,
-    indicators: tuple[EnvironmentalIndicator, ...],
-) -> RotationOptionEvidence:
-    """Keep unsupported ratings unknown while preserving the NASA context."""
-
-    rationales = {
-        "water_resilience": (
-            "Historical precipitation and temperature are context only; they do not measure "
-            "field water availability, and no reviewed crop/irrigation rule supports a rating."
-        ),
-        "soil_health_potential": (
-            "No field soil-health measurement or locally reviewed crop/residue rule is available."
-        ),
-        "yield_stability_proxy": (
-            "No locally validated crop response or comparable yield-stability evidence is "
-            "available."
-        ),
-        "labor_feasibility": (
-            "The farm profile does not record operation-specific labor or machinery availability."
-        ),
-    }
-    criteria = tuple(
-        CriterionEvidence(
-            criterion=criterion,
-            status="not_assessed",
-            rationale=rationales[criterion],
-            environmental_inputs=indicators if criterion == "water_resilience" else (),
-            assumptions=(
-                "Farmer-reported seasons and NASA town-point context are not field-validated.",
-            ),
-        )
-        for criterion in CRITERIA
-    )
-    return RotationOptionEvidence(
-        candidate=candidate,
-        criteria=criteria,
-        assumptions=(
-            "The past crop sequence is self-reported and awaits local review.",
-            "No unreviewed agronomic hard constraints were applied.",
-        ),
-    )

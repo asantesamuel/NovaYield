@@ -8,8 +8,8 @@
 
 - A request contains exactly three chronologically ordered event windows belonging to one plot, evidence status for whether those events are consecutive, a candidate crop library, optional sourced prior crop history, and an optional sourced three-event current-practice sequence.
 - The default candidate library is the six MVP candidates approved in the NY-14 research decision. Their inclusion records area-level crop presence only; suitability traits remain unknown.
-- The generator enumerates the Cartesian product of the candidate crop IDs across the three event slots in stable crop-ID order. With six candidates, this produces 216 mechanically distinct sequences before a known baseline is added.
-- A known current-practice sequence is emitted first as a `baseline`. The identical generated alternative is omitted so the sequence appears only once. An absent current-practice record produces no baseline.
+- The generator enumerates the Cartesian product of the candidate crop IDs across the three event slots in stable crop-ID order. Six candidates produce 216 mechanical combinations.
+- A known current-practice sequence is emitted first as a `baseline`. Its identical generated alternative is omitted, so the baseline replaces one combination and the output remains 216. An absent current-practice record produces no baseline.
 - Every output includes its event/crop mapping, generator version, review readiness, and rule findings. A baseline retains its source reference. IDs are deterministic for the same sequence and kind.
 
 ## Safety rules
@@ -26,6 +26,17 @@
 ## Relationship to the public profile
 
 `analysis_docs/research/ny-8-public-demo-profile.md` is an area archetype, not a farm record. Its historical month windows are not approved planting calendars, prior plot history is unknown, and no NASA response values are included. Therefore it cannot currently produce rank-ready recommendations. Unit tests use explicitly synthetic fixtures to verify mechanics; those fixtures are not demo data or agronomic evidence.
+
+## Assessment and ranking
+
+The generator is followed by the versioned crop library and pure sequence
+assessment in `app.decisions.crop_profiles` and `app.decisions.crop_evidence`.
+The assessor records event-level calendar/suitability review state and
+source-scoped predecessor/successor evidence; it does not add scores for
+unsupported relationships. NY-9 requires at least two usable NASA indicators
+for each past analysis period before it can assess the primary water criterion.
+See [NY-8 assessment and scoring](rotation-scoring.md) for the water-first
+ranking and response summary.
 
 ## Local checks
 

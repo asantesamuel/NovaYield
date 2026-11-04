@@ -30,7 +30,7 @@ class FarmDecisionInputSnapshot(BaseModel):
     irrigation_access: FarmText | None = None
     previous_crops: tuple[CropName, ...] | None = None
     current_practice: FarmText | None = None
-    farmer_priorities: PriorityPoints
+    farmer_priorities: PriorityPoints | None = None
     farm_updated_at: datetime
 
     @field_validator("farm_updated_at")
@@ -54,7 +54,9 @@ class FarmDecisionInputSnapshot(BaseModel):
                 tuple(farm.previous_crops) if farm.previous_crops is not None else None
             ),
             current_practice=farm.current_practice,
-            farmer_priorities=farm.farmer_priorities,
+            # NY-8 v2 uses fixed water-first ordering. The optional field remains
+            # only so older result documents with priority snapshots still load.
+            farmer_priorities=None,
             farm_updated_at=farm.updated_at,
         )
 
@@ -67,6 +69,9 @@ class RotationDecisionInputs(BaseModel):
     generation_request: RotationGenerationRequest
     scoring_request: ScoringRequest
     environmental_snapshot_ids: tuple[PydanticObjectId, ...] = ()
+    crop_library_version: str = "not_recorded"
+    assessment_version: str = "not_recorded"
+    rule_set_version: str = "not_recorded"
 
     @field_validator("environmental_snapshot_ids")
     @classmethod

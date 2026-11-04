@@ -120,18 +120,14 @@ candidate-generation and scoring outputs; the route returns the saved result.
 Because this POST may retrieve snapshots and always saves a result, browser
 callers using the cookie session must send the CSRF token in `X-CSRF-Token`.
 
-This is an orchestration contract, not a claim that the current evidence can
-rank rotations. Farmer-reported history, future slots, and desk-research crop
-traits retain their provisional or unknown status. The [evidence matrix](../../analysis_docs/research/ny-8-crop-criterion-evidence-matrix.md)
-shows which criterion findings are crop- or sequence-specific and why they do
-not yet form a comparable basis for every option. No unsupported hard
-agronomic rule is applied. When NASA data is unavailable, null indicators and
-the unavailable status remain visible in the saved result; values are never
-fabricated.
-
-The current NY-8 generator enumerates all 6³ combinations (216 sequences) and
-does not choose a top-three shortlist. Until a reviewed selection method is
-available, the endpoint preserves that output and withholds ranking rather
-than arbitrarily selecting options. The farm profile stores no plot-level
-history, so the farmer supplies the history for each request; it is retained
-with the result and is not silently promoted to locally validated evidence.
+This orchestration returns NY-8 v2's **provisional top three water-first
+alternatives**, not a validated farm prescription. It may examine all 6³ (216)
+combinations internally; `scoring_result.options` contains at most three. A
+known current practice is separate in `baseline_option`. The [evidence
+matrix](../../analysis_docs/research/ny-8-crop-criterion-evidence-matrix.md)
+documents crop classes, sources, confidence, and limits. A sequence with
+unassessed water evidence remains unranked; missing soil evidence does not
+block water ordering and cannot break a tie. Calendar/suitability warnings,
+historical NASA provenance, assumptions, and trade-offs stay visible. The
+farmer supplies history for each request; it is retained without being silently
+promoted to locally validated evidence.

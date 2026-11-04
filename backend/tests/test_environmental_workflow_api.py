@@ -508,7 +508,9 @@ def test_rotation_recommendation_slots_must_be_future_periods() -> None:
         )
 
 
-def test_rotation_workflow_uses_past_farm_reports_and_persists_unranked_result() -> None:
+def test_rotation_workflow_uses_past_reports_and_returns_only_top_three_provisional_options() -> (
+    None
+):
     owner_id = PydanticObjectId()
     farm = make_farm(PydanticObjectId(), owner_id)
     farm.farmer_priorities = PriorityPoints(
@@ -592,7 +594,10 @@ def test_rotation_workflow_uses_past_farm_reports_and_persists_unranked_result()
         )
     )
     assert saved_call["owner_user_id"] == owner_id
-    assert saved_call["scoring_result"].selected_weights.points == farm.farmer_priorities
+    assert saved_call["decision_inputs"].scoring_request.farmer_priorities is None
+    assert saved_call["decision_inputs"].generation_request.prior_crop_history == ("yam",)
+    assert result_repository.saved_result is not None
+    assert result_repository.saved_result.farm_inputs.farmer_priorities is None
     assert result_repository.saved_result is not None
     assert saved_result.generation_request.current_practice.crop_ids == (
         "maize",
@@ -601,10 +606,13 @@ def test_rotation_workflow_uses_past_farm_reports_and_persists_unranked_result()
     )
     assert saved_call["candidate_generation"].readiness == "needs_review"
     assert len(saved_call["candidate_generation"].candidates) == 216
-    assert saved_call["scoring_result"].equal_weight_ranking.status == "withheld"
-    assert saved_call["scoring_result"].selected_weight_ranking.status == "withheld"
+    assert saved_call["scoring_result"].excluded_options == ()
+    assert saved_call["scoring_result"].scoring_version == "ny8-scoring-v2"
+    assert saved_call["scoring_result"].ranking_method == "lexicographic_water_then_optional_soil"
+    assert saved_call["scoring_result"].ranking.status == "ranked"
+    assert len(saved_call["scoring_result"].options) == 3
     assert all(
-        criterion.status == "not_assessed"
+        criterion.criterion in {"water_resilience", "soil_health_potential"}
         for option in saved_call["scoring_result"].options
         for criterion in option.criteria
     )
@@ -612,8 +620,26 @@ def test_rotation_workflow_uses_past_farm_reports_and_persists_unranked_result()
     assert len(first_water_criterion.environmental_inputs) == 9
     assert all(item.data_status == "cached" for item in first_water_criterion.environmental_inputs)
     assert len(saved_result.environmental_snapshot_ids) == 3
-    assert body["scoring_result"]["selected_weights"]["points"]["water_resilience"] == 50
-    assert body["scoring_result"]["equal_weight_ranking"]["status"] == "withheld"
+    assert body["scoring_result"]["selected_weights"] is None
+    assert body["scoring_result"]["default_weights"] is None
+    assert len(body["scoring_result"]["options"]) == 3
+    assert body["scoring_result"]["ranking"]["status"] == "ranked"
+    assert body["crop_library_version"] == "ny8-crop-library-v1"
+    assert body["assessment_version"] == "ny8-sequence-assessment-v1"
+    assert body["rule_set_version"] == "ny8-rules-v1"
+    assert len(body["environmental_snapshot_ids"]) == 3
+    assert body["candidate_pool_summary"] == {
+        "total_generated": 216,
+        "total_excluded": 0,
+        "total_needing_review": 216,
+        "total_assessed": 125,
+        "total_rankable": 124,
+        "total_returned": 4,
+    }
+    assert "candidate_generation" not in body
+    assert all(
+        len(option["transition_assessments"]) == 3 for option in body["scoring_result"]["options"]
+    )
     first_event = body["scoring_result"]["options"][0]["candidate"]["events"][0]["event"]
     assert first_event["plot_id"] == "plot-a"
     serialized = str(body).lower()

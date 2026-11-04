@@ -1,81 +1,88 @@
-# NY-8 Provisional Agronomic Rotation Rules
+# NY-8 Provisional Water-First Rotation Policy
 
-**Status:** Desk-research rule proposal; provisional for Ejura and subject to future local/agronomist validation.  
-**Version:** 0.1  
-**Purpose:** Turn the reviewed evidence into conservative, explainable rules for selecting up to four rotation options when the required evidence is comparable.
+**Status:** Product Owner approved implementation policy; crop ratings and all agronomic interpretation remain provisional until local review.
 
-This document is a research synthesis, not a claim that I am a credentialed agronomist or that these rules have been field-validated. The evidence and its transfer limits are cited below. A Product Owner decision on 3 November 2026 removes labour feasibility from rotation scoring. This rule proposal retains the other three PRD criteria: water resilience, soil-health potential, and yield-stability proxy.
+**Version:** 0.2
 
-## 1. Decisions and boundaries
+**Updated:** 3 November 2026
 
-- Score three criteria only: **water resilience**, **soil-health potential**, and **yield-stability proxy**. Do not collect, return, weight, or rank on labour feasibility.
-- Preserve the previously approved equal-weight approach across the remaining criteria. **Implementation interpretation:** normalize the equal defaults to one third each (33.3333…%); let the farmer adjust only these three priorities.
-- Keep the approved missing-evidence policy: show supported criterion-level information, but withhold an overall rank when an option lacks comparable evidence for any required criterion. Do not turn `unknown` into a neutral or poor rating.
-- Apply hard exclusions before comparing options. A farmer priority cannot override an evidence-backed hard constraint.
-- Generate candidates internally as needed, but return at most the **top four ranked alternatives**. If known current practice is supplied, include it as a separately labelled baseline comparator; do not silently call it a recommended alternative.
-- Historical NASA periods describe past conditions. They are not a forecast for future recommendation seasons. Use past climate only as context for recurring local variability and clearly state the period/source.
-- Climate variability is a condition to adapt to, not a hard filter by itself. Do not claim to control or predict climate change. Do not invent a future-weather outlook.
+**Purpose:** Define a transparent method that returns up to three water-first options without filling missing evidence or claiming validated farm advice.
 
-The one-third default is an implementation interpretation of the prior equal-weight decision after removing a fourth criterion; it is not an agronomic finding. The removal of labour feasibility is an explicit MVP scope change from the four-criterion comparison in the original PRD and should be reflected in API/UI contracts and the PRD revision when those are next updated.
+This is a documented research synthesis and software rule set, not a claim of personal agronomy credentials or local field validation. The public-data Ejura profile is an area archetype, not a real farm.
 
-## 2. Evidence that can inform the rules
+## 1. Product decision and scope
 
-| Crop | Evidence usable as a provisional rule input | How to use it safely | Main limit |
-| --- | --- | --- | --- |
-| Maize | FAO gives an indicative total crop water need of 500–800 mm and medium-high drought sensitivity. Ghana rotation studies report improved maize outcomes after particular legume treatments. | Treat as a relatively water-sensitive cereal; consider a preceding cowpea/groundnut only under the soil/residue rule below. | Generic crop-water range; variety, duration, season, soil, and actual water supply are not represented. Legume effects depend on treatment and site. |
-| Cowpea | Ghana trials identify drought response and yield differences among genotypes and environments. | Keep water response unknown unless an identified variety has relevant evidence. Do not give a generic cowpea bonus or water-demand number. | Crop name alone does not identify variety or response; drought-sensitive stages still matter. |
-| Groundnut | FAO gives an indicative 500–700 mm total-period water need and low-medium drought sensitivity. Ghana trials show accession and environment effects. | Use only as broad water-risk context, and only when crop duration and production system are comparable. | Not an Ejura-specific water balance or a rating for an unspecified variety. |
-| Cassava | FAO describes prolonged-drought tolerance after establishment, with sensitivity to soil-water deficit during the first three months after planting. | Treat establishment-window water as a distinct risk; do not label cassava simply “low water” or drought-proof. | Variety, establishment date, soil moisture, and crop duration matter; no comparable seasonal water-demand value is established here. |
-| Yam | The reviewed sources do not provide a comparable pilot-specific water-demand or drought-response rating. | Keep water rating `not_assessed` until a sourced, matching variety/calendar/system value is available. | No basis for ranking yam's water resilience against other candidates. |
-| Rice | FAO's 450–700 mm and high drought sensitivity apply to **paddy rice**. Ghana sources distinguish upland, lowland, and irrigated systems. | Require the rice production system and water access before using paddy evidence. | The paddy estimate must not be assigned to upland or rain-fed lowland rice. |
+- **Primary criterion:** relative crop water-stress resilience, represented as High / Moderate / Low. The rating is a desk-researched crop-level proxy; it is not an estimate of litres, irrigation need, water sufficiency, yield, or future weather.
+- **Optional secondary criterion:** soil-health potential may break a tie between options with the same water rank only when every option in that tied group has assessed soil evidence on the same comparison basis. Missing soil evidence leaves the water tie intact.
+- **Not scored:** yield-stability proxy and labour feasibility are omitted from this ranking version. Farmer-entered priority points do not change the fixed water-first order. Historic farm/result records may still contain those legacy fields.
+- **Output limit:** return at most the **top three** alternatives. This matches NY-8's original requirement for three options. There is no NY-8 requirement for four; the earlier “top four” wording was an implementation/documentation mistake and is superseded.
+- If a known farmer-reported current practice exists, return it in a separate `baseline_option`, not as one of the three alternatives.
+- Preserve a tied group. Within ties, use candidate ID only for stable display order; do not prefer more diverse sequences. If the three-item limit cuts through a tie, disclose that equally ranked options were omitted from the short list.
+- Missing or incomparable primary water evidence leaves that option unranked. Return only the supported ranked subset; if none is comparable, withhold the overall rank. Do not impute or replace missing values.
+- Apply evidence-backed hard constraints before ranking. A review-needed calendar or crop suitability remains visible as a provisional warning; it does not become a fabricated pass or fail. Results are explicitly labelled provisional.
+- Historical NASA POWER indicators remain attached for traceability, but do not adjust the crop-level class or predict future recommendation seasons.
 
-FAO explicitly presents its crop-water figures as rough estimates dependent on growing-period length and climate. Crop water need (evapotranspiration) is not the same as rainfall requirement. Seasonal NASA precipitation alone does not account for effective rainfall, runoff, stored soil water, irrigation, or crop evapotranspiration. Therefore, do not subtract the FAO range from NASA rainfall and call the result a measured crop deficit. `T2M` and `T2M_MAX` describe historical air-temperature conditions, not crop canopy temperature or a validated crop heat-stress threshold; they must not independently trigger a crop exclusion.
+This is a non-compensatory, lexicographic policy: soil cannot offset a worse water rating. Choosing an explicit criterion order is appropriate because the Product Owner has stated water comes first; incomplete multi-criteria methods also preserve incomparability rather than manufacture a complete score. See the methodology references below.
 
-## 3. Rule set
+## 2. Water evidence table used by NY-8 v2
 
-| Rule ID | Rule | Effect | Required inputs and missing-data behavior | Evidence/status |
+“High” means relatively stronger resilience to water stress within this provisional candidate set, not low water consumption. The underlying sources use different crops, settings, and methods, so the categories are deliberately coarse, confidence is shown separately, and all results remain provisional.
+
+| Crop | Provisional water class | Confidence | Evidence and reason | Key limitation |
 | --- | --- | --- | --- | --- |
-| NY8-DATA-01 | A rotation consists of exactly three chronological planting events on the same plot. | Hard data-integrity gate. Reject malformed sequences before scoring. | Three events, plot identity, order, non-overlapping event windows. Invalid/missing event structure cannot be ranked. | NY-15; high confidence as a data-integrity rule. |
-| NY8-DATA-02 | Use only approved candidate crops and preserve a known farmer-reported baseline as a comparator. | Hard data-integrity gate. Do not invent history or baseline crops. | Candidate-library membership and provenance for reported history. Unknown history is `needs_review`, not an assumed fallow or crop. | NY-14/NY-15; high confidence for data integrity. |
-| NY8-CAL-01 | A crop assigned to a planting event must match a sourced crop/community planting window before calendar-dependent suitability is scored. | Hard gate only after the calendar is locally validated; otherwise mark `needs_review` and withhold a definitive rank. | Crop, variety where known, community, season, calendar source/version. Provisional windows remain visibly provisional. | PO Decision 3 and NY-15; local windows remain provisional. |
-| NY8-WAT-01 | Compare water fit only when the crop trait, production system, event window, and farm water context are sufficiently matched. | Criterion assessment, not a blanket crop exclusion. A sequence with unknown crop or water-system evidence has water status `not_assessed`. | Crop/variety, crop duration or stage window, rice ecology if relevant, irrigation/water access, and comparable period-specific climate evidence. | FAO crop-water guidance; NY-13; provisional. |
-| NY8-WAT-02 | In a documented water-limited context, prefer a sequence with better-supported lower drought sensitivity over a more sensitive alternative, all else comparable. | Relative water-resilience comparison; never a guaranteed yield or water-sufficiency claim. | A documented water-limited context and comparable crop-response evidence. If context or one option's trait is unknown, do not assign a comparative rating. | FAO: maize medium-high, groundnut low-medium, paddy rice high; Ghana cowpea results are genotype-dependent; cassava is stage-dependent. Provisional. |
-| NY8-WAT-03 | Do not apply paddy-rice water rules to rice unless the farm's rice ecology is identified. | `needs_review`; do not infer a rice system from the crop name. | Upland, rain-fed lowland, or irrigated classification and water-access details. | Ghana rice strategy and Tono irrigation study; scope-specific. |
-| NY8-SOIL-01 | A cowpea- or groundnut-before-maize sequence may receive a provisional soil-health-potential preference only when residue/biomass management and study context support the comparison. | Soft, criterion-level preference; never a nitrogen credit, measured soil-health claim, or hard sequence rule. | Ordered crop events, residue fate/retention, relevant variety/management evidence. If residue fate is unknown, explain the possible relationship but leave the rating `not_assessed`. | Kermah et al. (2019), Nyalemegbe et al. (2012); specific treatments/sites, limited transfer to Ejura. |
-| NY8-SOIL-02 | Do not award a soil benefit merely because a crop is a legume. | Prevent unsupported scoring. | Evidence of relevant biomass/residue contribution and management. Missing evidence means no score. | NY-14/NY-15 and Ghana rotation studies; high confidence that a blanket credit is unsupported. |
-| NY8-STAB-01 | Rate yield-stability proxy only from comparable multi-season evidence for the relevant crop/variety/sequence and environment. | Otherwise `not_assessed`; no overall rank while required evidence is missing. | Same outcome definition, relevant location/environment, variety/system, and comparable multi-season sequence results. | NY-8 evidence matrix; current evidence is not comparable across all six crops/sequences. |
-| NY8-CLIM-01 | Use historical climate variability to explain exposure and trade-offs; do not treat a past season as a future forecast or climate change as an automatic exclusion. | Context/explanation only unless a validated rule links it to a crop/event. | Source, historical period, location/grid limitations, and clear past-vs-future labels. | NY-13, NY-17 handoff, and NASA POWER limitations. |
-| NY8-RANK-01 | Apply hard constraints first, then rank only candidates assessed on all three criteria using the same comparison basis. Return no more than four ranked alternatives. | Rank top four when evidence is complete and comparable; otherwise return supported partial comparisons and `withheld` ranking with reasons. | Three comparable criterion assessments per option, weights, rule version, provenance, and baseline where known. | Existing PO Decision 6 remains in force. |
+| Groundnut | High | Low | FAO gives an indicative 500–700 mm per growing period and low-to-medium drought sensitivity. | Generic range; variety, duration, soil, and Ejura transfer are unknown. |
+| Cowpea | Moderate | Low | A Ghana Tono irrigation study supplies water-use context; Ghana trials show drought response varies by genotype/environment, so no universal high rating is justified. | Irrigated Tono and tested genotypes may not represent Ejura rain-fed farms. |
+| Cassava | Moderate | Moderate | FAO describes drought tolerance after establishment but sensitivity to water deficit during the first three months. The unresolved establishment window prevents a high class. | Variety, planting date, early-season soil moisture, and field management are unknown. |
+| Maize | Low | Moderate | FAO gives an indicative 500–800 mm per growing period and medium-to-high drought sensitivity. | Generic range, not a local forecast or a crop failure probability. |
+| Yam | Low | Low | A West African production review describes a long crop duration and need for sufficient, well-distributed moisture. | Broad regional evidence; local variety/calendar and field water storage are unknown. |
+| Rice | Not assessed | — | No rating until the production system is identified. FAO paddy figures must not be applied to upland rice. | Upland, lowland, and irrigated ecologies are not interchangeable. |
 
-## 4. Provisional water interpretation for the pilot
+Sources: [FAO crop water needs](https://www.fao.org/4/S2022E/s2022e07.htm), [FAO Save and Grow: Cassava](https://www.fao.org/4/i3278e/i3278e.pdf), [Ghana Tono water-use study](https://cspace.csirgh.com/items/show/1466), [Ghana cowpea drought variation study](https://ugspace.ug.edu.gh/items/6ca7b2cc-9533-4d3b-9922-cf4589f3a914), and [West African yam production review](https://doi.org/10.5772/intechopen.106504).
 
-The sources justify **relative caution**, not exact crop-by-crop water scores:
+### Sequence rule
 
-1. Maize's broad water-need range and medium-high drought sensitivity make it a higher-concern choice when a planting window is documented as water-limited.
-2. Groundnut's broad range is similar in magnitude, but FAO reports lower drought sensitivity. This does not prove groundnut is the better crop for a particular Ejura field or variety.
-3. Cassava may tolerate prolonged drought after establishment, but a dry first three months can undermine establishment. The crop's long duration means it cannot be compared by seasonal rainfall total alone.
-4. Cowpea should not be assigned a universal drought rating. Ghana studies show substantial genotype/environment differences; named variety evidence is needed.
-5. Paddy rice is water-sensitive; without the production system and dependable water-access information, a rice sequence remains `needs_review` for water comparison.
-6. Yam remains unscored for water until comparable evidence is found.
+For each three-season sequence, use the **least water-resilient rated crop** as the sequence's water class. This conservative bottleneck rule avoids averaging away a vulnerable season. It is an implementation choice, not a validated agronomic threshold. If any crop is not assessed (currently rice with unknown ecology), the sequence water criterion is `not_assessed` and it cannot be ranked.
 
-For these reasons, NASA `PRECTOTCORR`, `T2M`, and `T2M_MAX` are environmental context, not enough by themselves to prove water sufficiency. An eventual water-risk feature should use a documented historical baseline for the same community/season and a reviewed crop window, and must label the result as historical context. It must not claim to forecast the upcoming planting event.
+Do not interpret this class as crop water requirement. FAO defines crop evapotranspiration using reference evapotranspiration and a crop coefficient (`ETc = ETo × Kc`); crop stage, climate, and growing-period length matter. The current NASA POWER inputs are historical precipitation and temperature only. They do not include all required water-balance inputs such as humidity, wind, radiation, effective rainfall, irrigation delivery, soil storage, or the matching crop-stage coefficients. Therefore NASA values are provenance/context in the result, not a quantity used to assign crop class.
 
-## 5. Ranking and top-four behavior
+## 3. Soil-health tie-break policy
 
-1. Generate candidate sequences deterministically; apply only the hard data/calendar/validated agronomic constraints.
-2. Assess water resilience, soil-health potential, and yield-stability proxy independently, preserving source, confidence, assumptions, and missingness for each.
-3. Normalize the three default priorities equally (one third each); normalize farmer-selected priorities across the same three criteria.
-4. Rank only when all compared non-excluded alternatives have a rating for all three criteria on comparable bases. Use the existing deterministic tie behavior and expose weights/rationale, not an invented probability or precise yield score.
-5. Return at most four alternatives. If evidence does not support four ranked alternatives, return fewer or withhold the overall rank; do not pad the list with unsupported sequences. Include a known baseline as a clearly identified comparator.
+Ghana field research supports specific legume/fallow/residue relationships before maize under named treatments; it does not support a universal soil benefit for every legume or sequence. Soil-health effects depend on biomass, variety, residue fate, soil, and management. The current farm/result inputs do not capture enough of that context. Therefore:
 
-**Current demo-profile result:** The Ejura area archetype does not yet support even one overall rank. It has no validated crop calendar, named varieties, plot-level water access, rice ecology, residue history, or comparable multi-season sequence evidence. The three criteria remain `not_assessed` or incomplete for cross-option comparison. Removing labour eliminates one criterion but does not make a top-four ranking evidence-ready. Under PO Decision 6, the correct current output is a withheld overall rank with transparent reasons.
+1. Current NY-8 v2 emits soil-health potential as `not_assessed` for the public profile and does not use it to break a tie.
+2. A later implementation may supply a sourced soil assessment only when sequence-specific evidence and required management inputs exist.
+3. Soil may refine ordering only inside a tied water group and only if every option in that group has ratings on the same soil comparison basis. Otherwise leave the group tied.
+4. Never describe a potential as measured soil health, nitrogen credit, or guaranteed yield improvement.
 
-## 6. Evidence references
+Relevant research includes [Ghana cowpea/legume–maize rotation work](https://doi.org/10.1017/S0014479718000273) and [maize rotations with food legumes on Ghanaian Vertisols](https://ugspace.ug.edu.gh/items/d346fb22-09de-4507-9c62-3d1c55e91c7e); results are treatment- and site-specific.
 
-- FAO, [Crop Water Needs, Chapter 3](https://www.fao.org/4/S2022E/s2022e07.htm): indicative total-period needs and drought sensitivity for maize, peanut/groundnut, and paddy rice; rough estimates dependent on crop duration and climate.
-- FAO, [Save and Grow: Cassava](https://www.fao.org/4/i3278e/i3278e.pdf): cassava drought response and first-three-month establishment sensitivity.
-- Mustapha (2017), University of Ghana, [Genetic variability for drought tolerance in cowpea in Ghana](https://ugspace.ug.edu.gh/items/6ca7b2cc-9533-4d3b-9922-cf4589f3a914): genotype and environment effects across Ghana ecologies.
-- Kermah et al. (2019), [Legume-maize rotation or relay options in northern Ghana](https://pure.ug.edu.gh/en/publications/legume-maize-rotation-or-relay-options-for-ecological-intensifica-2/), DOI [10.1017/S0014479718000273](https://doi.org/10.1017/S0014479718000273): crop/soil/treatment-specific rotation evidence.
-- Nyalemegbe et al. (2012), [Rotation of maize with leguminous food crops on Ghanaian Vertisols](https://ugspace.ug.edu.gh/items/d346fb22-09de-4507-9c62-3d1c55e91c7e): named varieties, residue treatments, and succeeding-maize outcomes at Kpong.
-- NY-8, [Provisional crop-by-criterion evidence matrix](ny-8-crop-criterion-evidence-matrix.md): full source confidence, limitations, and current ranking-readiness status.
-- NY-8, [Public demo area archetype](ny-8-public-demo-profile.md): location/context evidence and explicit unknowns.
+## 4. Ranking steps and response behavior
+
+1. Generate three-event sequences deterministically. Keep the known current practice as a separate baseline. Repeated crops remain candidates and receive ROT-004 review warnings; do not add a blanket repeat or single-crop exclusion without an approved, evidence-backed rule.
+2. Apply explicitly failed hard constraints before assessment. Keep `needs_review` constraints as visible warnings because the product has accepted provisional desk-research results; do not describe such results as validated.
+3. Build the two active criterion records: water and soil. Each includes rating/status, confidence, rationale, comparison basis, citations, assumptions, and any historical NASA indicators. Require at least two usable approved NASA indicators in every past analysis period before assessing primary water; the underlying NY-13 policy permits two when one of three is unavailable and does not set a partial-coverage percentage threshold.
+4. Partition by comparable water basis. If all assessed water evidence uses one basis, order High before Moderate before Low. Options missing water remain unranked. If rated options use different bases, withhold ranking rather than select a convenient majority basis.
+5. Within a water tie only, order by soil if every tied option is assessed on one common basis. Missing soil is not a neutral rating and does not block water order.
+6. Select no more than three alternatives. Within a tie, use candidate ID for stable display only; `tie_at_limit` and rationale disclose when the cutoff hides other equal alternatives. This ordering does not break the agronomic tie.
+7. Return the baseline separately, plus candidate-pool counts, provisional status, crop-library/assessment/rule/scoring versions, per-option evidence, NASA snapshot references, and tie/withholding reasons.
+
+The generator may examine 216 combinations from six crops internally. The API result's `scoring_result.options` contains no more than three alternatives; pool counts may appear as audit provenance. The returned list is not a prediction and does not imply that a displayed tied option is strictly better than another tied option. NY-13's existing minimum of two usable indicators in each past period is required before the primary water criterion can be assessed; partial indicators retain their coverage and no new coverage threshold is invented.
+
+## 5. Why this handles the evidence blocker
+
+Multi-criteria research distinguishes compensatory methods (one criterion can offset another) from non-compensatory/priority methods. A fixed lexicographic order makes water primary without inventing weights or allowing a soil estimate to compensate for weaker water evidence. Research on evidence-strength MCDA explicitly recognizes “incomparability” when evidence is not strong enough to distinguish options; incomplete-data decision methods preserve missingness or partial orders rather than silently inventing values. NovaYield uses the simplest auditable version of that idea: rank comparable water evidence, optionally refine a genuine tie, and otherwise keep the tie or withhold.
+
+This reduces the evidence burden from three equally required comparisons to one primary comparison. It does **not** make weak evidence strong. Crop classes remain provisional, rice remains unranked until its ecology is known, soil is not currently used, and local validation is still required before describing results as agronomic advice.
+
+## References
+
+- FAO, [Crop Water Needs, Chapter 3](https://www.fao.org/4/S2022E/s2022e07.htm): indicative needs/sensitivity; `ETc = ETo × Kc`; values depend on growing period and climate.
+- FAO, [Save and Grow: Cassava](https://www.fao.org/4/i3278e/i3278e.pdf): drought response after establishment and first-three-month sensitivity.
+- Asaana et al., [Water-use assessment at Tono Irrigation Scheme, Ghana](https://cspace.csirgh.com/items/show/1466): study-specific crop water-use context.
+- Mustapha, University of Ghana, [Genetic variability for drought tolerance in cowpea in Ghana](https://ugspace.ug.edu.gh/items/6ca7b2cc-9533-4d3b-9922-cf4589f3a914): genotype/environment effects.
+- West African production review, [Water needs and yam crop duration](https://doi.org/10.5772/intechopen.106504): broad yam context; limited pilot transferability.
+- Adiku et al., [Crop rotation and residue management in Ghana's forest–savannah transition](https://ugspace.ug.edu.gh/items/7526f19b-7322-4be3-9863-ed349b390137): site/treatment-specific maize, residue, and soil-carbon results.
+- Martin et al., [Strength-of-evidence MCDA](https://pmc.ncbi.nlm.nih.gov/articles/PMC8193858/): incomplete evidence can warrant incomparability rather than a forced preference.
+- da Silva et al., [Lexicographic criteria ordering in MCDA](https://onlinelibrary.wiley.com/doi/10.1155/2015/481950): criteria are ordered by decision-maker importance; a non-compensatory method is available when that order is explicit.
+- FAO, [Crop evapotranspiration guidelines](https://www.fao.org/4/x0490e/x0490e0a.htm): ETc depends on reference ET and crop coefficient/stage.
+- NovaYield, [NY-8 public-data profile](ny-8-public-demo-profile.md) and [crop evidence matrix](ny-8-crop-criterion-evidence-matrix.md): area archetype and crop-specific evidence limits.

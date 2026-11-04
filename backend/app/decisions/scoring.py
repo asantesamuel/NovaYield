@@ -1,14 +1,13 @@
-"""NY-8 qualitative multi-criteria comparison and ranking.
+"""NY-8 provisional water-first ranking and optional soil tie-breaking.
 
-The scorer aggregates supplied, evidence-backed criterion assessments. It does
-not infer crop performance from a crop name or calculate agronomic ratings
-from unvalidated inputs.
+New results use a lexicographic order: water resilience is primary and
+soil-health potential can break a tie only when its evidence is comparable.
+Historical NY-8 result fields remain parseable for existing Mongo documents.
 """
 
 from __future__ import annotations
 
-from decimal import ROUND_HALF_UP, Decimal
-from fractions import Fraction
+from decimal import Decimal
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -19,15 +18,16 @@ from app.decisions.rotation import (
 )
 from app.indicators.environmental import EnvironmentalIndicator
 
-SCORING_VERSION = "ny8-scoring-v1"
-WEIGHT_PERCENT_QUANTUM = Decimal("0.0001")
+SCORING_VERSION = "ny8-scoring-v2"
 
 Criterion = Literal[
     "water_resilience",
     "soil_health_potential",
+    # Legacy values are retained solely to deserialize previously stored NY-20 results.
     "yield_stability_proxy",
     "labor_feasibility",
 ]
+ActiveCriterion = Literal["water_resilience", "soil_health_potential"]
 CriterionRating = Literal["high", "moderate", "low"]
 Confidence = Literal["high", "moderate", "low"]
 EvidenceStatus = Literal["assessed", "not_assessed"]
@@ -35,20 +35,21 @@ ConstraintOutcome = Literal["passed", "failed", "needs_review"]
 WeightSource = Literal["default_equal", "farmer_selected"]
 RankingStatus = Literal["ranked", "withheld", "insufficient_options"]
 SensitivityStatus = Literal["not_applicable", "stable", "weight_sensitive", "unavailable"]
+TransitionStatus = Literal["assessed", "needs_review", "not_assessed"]
+CalendarEvidenceStatus = Literal["unknown", "provisional", "locally_validated"]
 
-CRITERIA: tuple[Criterion, ...] = (
+CRITERIA: tuple[ActiveCriterion, ...] = (
     "water_resilience",
     "soil_health_potential",
-    "yield_stability_proxy",
-    "labor_feasibility",
 )
 
-RATING_ORDER: dict[CriterionRating, int] = {"high": 3, "moderate": 2, "low": 1}
-RANKING_BLOCKER_RULE_IDS = frozenset({"ROT-001", "ROT-002", "ROT-003", "NY14-SUITABILITY"})
+TOP_RECOMMENDATION_LIMIT = 3
+RANKING_METHOD = "lexicographic_water_then_optional_soil"
+LEGACY_RANKING_METHOD = "legacy_weighted_v1"
 
 
 class PriorityPoints(BaseModel):
-    """Farmer-entered importance points; relative weights are normalized later."""
+    """Legacy farmer priority values retained for reading old persisted records."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -124,6 +125,42 @@ class HardConstraintFinding(BaseModel):
         return self
 
 
+class EventAssessment(BaseModel):
+    """Context checks for one crop assigned to one planting event."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    event_order: int = Field(ge=1, le=3)
+    crop_id: str = Field(min_length=1)
+    status: TransitionStatus
+    calendar_status: CalendarEvidenceStatus
+    rationale: str = Field(min_length=1)
+    required_context_missing: tuple[str, ...] = ()
+    evidence_references: tuple[str, ...] = ()
+
+
+class TransitionAssessment(BaseModel):
+    """Evidence state for one ordered relationship between planting events."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    relationship_id: str | None = None
+    predecessor_crop_id: str | None = None
+    successor_crop_id: str = Field(min_length=1)
+    status: TransitionStatus
+    rationale: str = Field(min_length=1)
+    evidence_references: tuple[str, ...] = ()
+    required_context_missing: tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def require_sources_for_assessed_relationship(self) -> TransitionAssessment:
+        """An assessed crop transition must identify the evidence it used."""
+
+        if self.status == "assessed" and not self.evidence_references:
+            raise ValueError("An assessed crop transition requires evidence references")
+        return self
+
+
 class RotationOptionEvidence(BaseModel):
     """Candidate plus the evidence and hard-rule outcomes used for comparison."""
 
@@ -131,6 +168,8 @@ class RotationOptionEvidence(BaseModel):
 
     candidate: RotationCandidate
     hard_constraints: tuple[HardConstraintFinding, ...] = ()
+    event_assessments: tuple[EventAssessment, ...] = ()
+    transition_assessments: tuple[TransitionAssessment, ...] = ()
     criteria: tuple[CriterionEvidence, ...] = ()
     benefits: tuple[str, ...] = ()
     trade_offs: tuple[str, ...] = ()
@@ -138,7 +177,7 @@ class RotationOptionEvidence(BaseModel):
 
     @model_validator(mode="after")
     def require_one_assessment_per_criterion(self) -> RotationOptionEvidence:
-        """Require explicit assessed or not-assessed state for all four criteria."""
+        """Allow explicit active assessments and legacy four-criterion records."""
 
         rule_ids = tuple(item.rule_id for item in self.hard_constraints)
         if len(set(rule_ids)) != len(rule_ids):
@@ -152,13 +191,13 @@ class RotationOptionEvidence(BaseModel):
             return self
 
         criterion_ids = tuple(item.criterion for item in self.criteria)
-        if len(criterion_ids) != len(CRITERIA) or set(criterion_ids) != set(CRITERIA):
-            raise ValueError("Every option must provide exactly one assessment for each criterion")
+        if len(set(criterion_ids)) != len(criterion_ids):
+            raise ValueError("An option can assess each criterion only once")
         return self
 
 
 class ScoringRequest(BaseModel):
-    """Options to compare and optional farmer importance points."""
+    """Options to compare; legacy farmer points are retained but ignored in v2."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -176,7 +215,7 @@ class ScoringRequest(BaseModel):
 
 
 class WeightShare(BaseModel):
-    """Normalized percentage shown alongside every criterion assessment."""
+    """Legacy normalized percentage retained for old result documents."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -185,7 +224,7 @@ class WeightShare(BaseModel):
 
 
 class WeightProfile(BaseModel):
-    """Auditable origin and normalized form of a weight profile."""
+    """Legacy audit record retained so historical scoring results deserialize."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -199,12 +238,17 @@ class CriterionResult(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    criterion: Criterion
+    criterion: Criterion = Field(
+        description=(
+            "NY-8 v2 emits only water_resilience and soil_health_potential. "
+            "Older persisted scoring-v1 results may also contain yield/labour criteria."
+        )
+    )
     status: EvidenceStatus
     rating: CriterionRating | None
     confidence: Confidence | None
-    equal_weight_percent: Decimal
-    selected_weight_percent: Decimal
+    equal_weight_percent: Decimal | None = None
+    selected_weight_percent: Decimal | None = None
     rationale: str
     comparison_basis: str | None
     evidence_references: tuple[str, ...]
@@ -220,6 +264,8 @@ class ScoredOption(BaseModel):
     candidate: RotationCandidate
     criteria: tuple[CriterionResult, ...]
     hard_constraints: tuple[HardConstraintFinding, ...]
+    event_assessments: tuple[EventAssessment, ...] = ()
+    transition_assessments: tuple[TransitionAssessment, ...] = ()
     candidate_rule_findings: tuple[CandidateRuleFinding, ...]
     benefits: tuple[str, ...]
     trade_offs: tuple[str, ...]
@@ -237,188 +283,110 @@ class ExcludedOption(BaseModel):
 
 
 class RankingOutcome(BaseModel):
-    """Tie-aware ordering, or an explicit reason no overall rank is available."""
+    """Provisional water-first top-three ordering with ties and unranked count."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     status: RankingStatus
     rank_groups: tuple[tuple[str, ...], ...] = ()
     reasons: tuple[str, ...] = ()
+    method: str = LEGACY_RANKING_METHOD
+    provisional: bool = True
+    ranked_candidate_count: int = 0
+    unranked_candidate_count: int = 0
+    tie_at_limit: bool = False
 
 
 class ScoringResult(BaseModel):
-    """Criterion comparisons, exclusions, weight sensitivity, and rank status."""
+    """Three returned alternatives, a separate baseline, and ranking provenance."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     scoring_version: str = SCORING_VERSION
     rating_scale: Literal["relative_qualitative"] = "relative_qualitative"
-    default_weights: WeightProfile
-    selected_weights: WeightProfile
-    options: tuple[ScoredOption, ...]
+    ranking_method: str = RANKING_METHOD
+    provisional: bool = True
+    candidate_count: int = 0
+    default_weights: WeightProfile | None = None
+    selected_weights: WeightProfile | None = None
+    options: tuple[ScoredOption, ...] = Field(
+        description="At most three comparable alternatives; current practice is separate."
+    )
+    baseline_option: ScoredOption | None = None
     excluded_options: tuple[ExcludedOption, ...]
-    equal_weight_ranking: RankingOutcome
-    selected_weight_ranking: RankingOutcome
-    sensitivity: SensitivityStatus
+    ranking: RankingOutcome | None = None
+    # Optional legacy fields preserve deserialization of NY-8 scoring-v1 records.
+    equal_weight_ranking: RankingOutcome | None = None
+    selected_weight_ranking: RankingOutcome | None = None
+    sensitivity: SensitivityStatus | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def add_legacy_result_metadata(cls, value: object) -> object:
+        """Keep v1 scores labeled as weighted results when old Mongo docs load."""
+
+        if not isinstance(value, dict):
+            return value
+        payload = dict(value)
+        if payload.get("scoring_version") == "ny8-scoring-v1":
+            payload.setdefault("ranking_method", LEGACY_RANKING_METHOD)
+            payload.setdefault("candidate_count", len(payload.get("options", ())))
+        return payload
+
+    @model_validator(mode="after")
+    def validate_v2_output_contract(self) -> ScoringResult:
+        """Protect the new top-three/two-criterion contract, while reading v1 docs."""
+
+        if self.scoring_version != SCORING_VERSION:
+            return self
+        if len(self.options) > TOP_RECOMMENDATION_LIMIT:
+            raise ValueError("NY-8 v2 can return at most three alternatives")
+        if self.ranking is None:
+            raise ValueError("NY-8 v2 requires ranking status and rationale")
+        if self.ranking_method != RANKING_METHOD:
+            raise ValueError("NY-8 v2 requires the fixed water-first ranking method")
+        if any(
+            result.criterion not in CRITERIA
+            for option in self.options
+            for result in option.criteria
+        ):
+            raise ValueError("NY-8 v2 results can expose only water and soil criteria")
+        if self.default_weights is not None or self.selected_weights is not None:
+            raise ValueError("NY-8 v2 uses fixed criterion precedence, not weighted profiles")
+        return self
 
 
-def score_rotation_options(request: ScoringRequest) -> ScoringResult:
-    """Compare options with sourced qualitative evidence under two weight views.
-
-    Hard failures are removed before scoring. Missing/incomparable evidence or
-    unresolved hard-rule review blocks the overall rank but preserves all
-    available per-criterion comparisons. Farmer priorities never affect
-    validity.
-    """
-
-    default_points = _equal_priority_points()
-    selected_points = request.farmer_priorities or default_points
-    default_profile = _weight_profile(default_points, "default_equal")
-    selected_profile = _weight_profile(
-        selected_points,
-        "farmer_selected" if request.farmer_priorities is not None else "default_equal",
-    )
-
-    scored_options: list[ScoredOption] = []
-    excluded_options: list[ExcludedOption] = []
-    ranking_blockers: list[str] = []
-
-    for option in sorted(request.options, key=lambda item: item.candidate.candidate_id):
-        failed = tuple(
-            finding for finding in option.hard_constraints if finding.outcome == "failed"
-        )
-        if failed:
-            excluded_options.append(
-                ExcludedOption(
-                    candidate=option.candidate,
-                    failed_constraints=failed,
-                )
-            )
-            continue
-
-        needs_review_constraints = tuple(
-            finding for finding in option.hard_constraints if finding.outcome == "needs_review"
-        )
-        ranking_blockers.extend(
-            f"{option.candidate.candidate_id}: {finding.rule_id} needs review: {finding.rationale}"
-            for finding in needs_review_constraints
-        )
-        ranking_blockers.extend(
-            f"{option.candidate.candidate_id}: {finding.rule_id} needs review: "
-            f"{finding.explanation}"
-            for finding in option.candidate.rule_findings
-            if finding.rule_id in RANKING_BLOCKER_RULE_IDS and finding.outcome == "needs_review"
-        )
-
-        scored_options.append(
-            _build_scored_option(
-                option,
-                default_profile=default_profile,
-                selected_profile=selected_profile,
-                needs_review_constraints=needs_review_constraints,
-            )
-        )
-
-    equal_ranking = _rank_options(
-        scored_options,
-        points=default_points,
-        blockers=ranking_blockers,
-    )
-    selected_ranking = _rank_options(
-        scored_options,
-        points=selected_points,
-        blockers=ranking_blockers,
-    )
-
-    if request.farmer_priorities is None:
-        sensitivity: SensitivityStatus = "not_applicable"
-    elif equal_ranking.status != "ranked" or selected_ranking.status != "ranked":
-        sensitivity = "unavailable"
-    elif equal_ranking.rank_groups == selected_ranking.rank_groups:
-        sensitivity = "stable"
-    else:
-        sensitivity = "weight_sensitive"
-
-    return ScoringResult(
-        default_weights=default_profile,
-        selected_weights=selected_profile,
-        options=tuple(scored_options),
-        excluded_options=tuple(excluded_options),
-        equal_weight_ranking=equal_ranking,
-        selected_weight_ranking=selected_ranking,
-        sensitivity=sensitivity,
-    )
-
-
-def _equal_priority_points() -> PriorityPoints:
-    """Create the approved default without sharing a mutable model instance."""
-
-    return PriorityPoints(
-        water_resilience=25,
-        soil_health_potential=25,
-        yield_stability_proxy=25,
-        labor_feasibility=25,
-    )
-
-
-def _weight_profile(points: PriorityPoints, source: WeightSource) -> WeightProfile:
-    """Normalize points to visible percentages that sum exactly to 100.
-
-    Percentages are rounded to four decimal places. The final non-zero criterion
-    absorbs any rounding remainder so a zero-weight criterion stays at zero.
-    """
-
-    values = points.model_dump()
-    total = sum(values.values())
-    normalized: dict[Criterion, Decimal] = {}
-    for criterion in CRITERIA:
-        percentage = (Decimal(values[criterion]) * 100 / total).quantize(
-            WEIGHT_PERCENT_QUANTUM,
-            rounding=ROUND_HALF_UP,
-        )
-        normalized[criterion] = percentage
-
-    correction = Decimal("100") - sum(normalized.values(), Decimal("0"))
-    correction_target = next(criterion for criterion in reversed(CRITERIA) if values[criterion] > 0)
-    normalized[correction_target] += correction
-    shares = tuple(
-        WeightShare(criterion=criterion, percent=normalized[criterion]) for criterion in CRITERIA
-    )
-    return WeightProfile(source=source, points=points, normalized_weights=shares)
-
-
-def _build_scored_option(
+def _build_provisional_option(
     option: RotationOptionEvidence,
     *,
-    default_profile: WeightProfile,
-    selected_profile: WeightProfile,
     needs_review_constraints: tuple[HardConstraintFinding, ...],
 ) -> ScoredOption:
-    """Join evidence with both disclosed weight profiles in fixed criterion order."""
+    """Return only the current water and optional soil assessments."""
 
     evidence_by_criterion = {item.criterion: item for item in option.criteria}
-    default_by_criterion = {
-        item.criterion: item.percent for item in default_profile.normalized_weights
-    }
-    selected_by_criterion = {
-        item.criterion: item.percent for item in selected_profile.normalized_weights
-    }
-    criterion_results = tuple(
-        CriterionResult(
-            criterion=criterion,
-            status=evidence_by_criterion[criterion].status,
-            rating=evidence_by_criterion[criterion].rating,
-            confidence=evidence_by_criterion[criterion].confidence,
-            equal_weight_percent=default_by_criterion[criterion],
-            selected_weight_percent=selected_by_criterion[criterion],
-            rationale=evidence_by_criterion[criterion].rationale,
-            comparison_basis=evidence_by_criterion[criterion].comparison_basis,
-            evidence_references=evidence_by_criterion[criterion].evidence_references,
-            environmental_inputs=evidence_by_criterion[criterion].environmental_inputs,
-            assumptions=evidence_by_criterion[criterion].assumptions,
+    results: list[CriterionResult] = []
+    for criterion in CRITERIA:
+        evidence = evidence_by_criterion.get(criterion)
+        if evidence is None:
+            evidence = CriterionEvidence(
+                criterion=criterion,
+                status="not_assessed",
+                rationale="No comparable evidence was supplied for this criterion.",
+            )
+        results.append(
+            CriterionResult(
+                criterion=criterion,
+                status=evidence.status,
+                rating=evidence.rating,
+                confidence=evidence.confidence,
+                rationale=evidence.rationale,
+                comparison_basis=evidence.comparison_basis,
+                evidence_references=evidence.evidence_references,
+                environmental_inputs=evidence.environmental_inputs,
+                assumptions=evidence.assumptions,
+            )
         )
-        for criterion in CRITERIA
-    )
+
     warnings = tuple(
         f"{finding.rule_id}: {finding.rationale}" for finding in needs_review_constraints
     )
@@ -429,8 +397,10 @@ def _build_scored_option(
     )
     return ScoredOption(
         candidate=option.candidate,
-        criteria=criterion_results,
+        criteria=tuple(results),
         hard_constraints=option.hard_constraints,
+        event_assessments=option.event_assessments,
+        transition_assessments=option.transition_assessments,
         candidate_rule_findings=option.candidate.rule_findings,
         benefits=option.benefits,
         trade_offs=option.trade_offs,
@@ -439,81 +409,183 @@ def _build_scored_option(
     )
 
 
-def _rank_options(
+def _criterion(option: ScoredOption, criterion: ActiveCriterion) -> CriterionResult:
+    """Find one active criterion already normalized into the output option."""
+
+    return next(item for item in option.criteria if item.criterion == criterion)
+
+
+def _rank_provisionally(
     options: list[ScoredOption],
-    *,
-    points: PriorityPoints,
-    blockers: list[str],
-) -> RankingOutcome:
-    """Return tie-aware rank groups only when all compared evidence is complete."""
+) -> tuple[tuple[tuple[str, ...], ...], dict[str, ScoredOption], int, str | None]:
+    """Rank comparable water groups and use soil only for complete tied groups."""
 
-    if len(options) < 2:
-        return RankingOutcome(
-            status="insufficient_options",
-            reasons=("At least two non-excluded options are required for comparison.",),
+    assessed = [
+        option
+        for option in options
+        if _criterion(option, "water_resilience").status == "assessed"
+        and _criterion(option, "water_resilience").rating is not None
+    ]
+    bases = {_criterion(option, "water_resilience").comparison_basis for option in assessed}
+    if len(bases) > 1 or (assessed and None in bases):
+        return (
+            (),
+            {},
+            len(options),
+            "Primary water evidence uses different or missing comparison bases; "
+            "ranking is withheld.",
         )
+    if not assessed:
+        return (), {}, len(options), None
 
-    reasons = list(dict.fromkeys(blockers))
-
-    for criterion in CRITERIA:
-        assessments = [
-            next(result for result in option.criteria if result.criterion == criterion)
-            for option in options
+    groups: list[tuple[str, ...]] = []
+    for water_rating in ("high", "moderate", "low"):
+        water_group = [
+            option
+            for option in assessed
+            if _criterion(option, "water_resilience").rating == water_rating
         ]
-        missing_ids = tuple(
-            option.candidate.candidate_id
-            for option, assessment in zip(options, assessments, strict=True)
-            if assessment.status != "assessed" or assessment.rating is None
-        )
-        if missing_ids:
-            reasons.append(f"{criterion} is not assessed for: {', '.join(missing_ids)}.")
+        if not water_group:
             continue
 
-        incomplete_source_ids = tuple(
-            option.candidate.candidate_id
-            for option, assessment in zip(options, assessments, strict=True)
-            if any(
-                indicator.status != "complete" or indicator.data_status == "unavailable"
-                for indicator in assessment.environmental_inputs
-            )
+        soil_evidence = [_criterion(option, "soil_health_potential") for option in water_group]
+        soil_is_comparable = (
+            all(item.status == "assessed" and item.rating is not None for item in soil_evidence)
+            and len({item.comparison_basis for item in soil_evidence}) == 1
+            and soil_evidence[0].comparison_basis is not None
         )
-        if incomplete_source_ids:
-            reasons.append(
-                f"{criterion} uses partial or unavailable environmental data for: "
-                f"{', '.join(incomplete_source_ids)}."
-            )
+        if soil_is_comparable:
+            for soil_rating in ("high", "moderate", "low"):
+                tied = [
+                    option
+                    for option in water_group
+                    if _criterion(option, "soil_health_potential").rating == soil_rating
+                ]
+                if tied:
+                    groups.append(tuple(sorted(item.candidate.candidate_id for item in tied)))
+        else:
+            groups.append(tuple(sorted(item.candidate.candidate_id for item in water_group)))
 
-        bases = {assessment.comparison_basis for assessment in assessments}
-        if len(bases) != 1 or None in bases:
-            reasons.append(f"{criterion} evidence uses incomparable assessment bases.")
+    by_id = {option.candidate.candidate_id: option for option in assessed}
+    return tuple(groups), by_id, len(options) - len(assessed), None
 
-    if reasons:
-        return RankingOutcome(status="withheld", reasons=tuple(reasons))
 
-    total_points = sum(points.model_dump().values())
-    weighted_values: list[tuple[Fraction, str]] = []
-    for option in options:
-        result_by_criterion = {result.criterion: result for result in option.criteria}
-        value = sum(
-            (
-                Fraction(getattr(points, criterion), total_points)
-                * RATING_ORDER[result_by_criterion[criterion].rating]
-                for criterion in CRITERIA
-            ),
-            Fraction(0),
+def _top_three(
+    groups: tuple[tuple[str, ...], ...],
+    options_by_id: dict[str, ScoredOption],
+) -> tuple[list[ScoredOption], tuple[tuple[str, ...], ...], bool]:
+    """Return at most three options, marking when the cutoff splits a tie.
+
+    Candidate ID supplies stable display order within a tie. It is not a score
+    or agronomic preference; a tie cut by the limit remains explicitly marked.
+    """
+
+    selected_ids: list[str] = []
+    selected_groups: list[tuple[str, ...]] = []
+    tie_at_limit = False
+
+    for original_group in groups:
+        group = tuple(sorted(original_group))
+        remaining = TOP_RECOMMENDATION_LIMIT - len(selected_ids)
+        if remaining <= 0:
+            break
+        shown = group[:remaining]
+        selected_ids.extend(shown)
+        selected_groups.append(shown)
+        if len(group) > remaining:
+            tie_at_limit = True
+            break
+    return [options_by_id[item] for item in selected_ids], tuple(selected_groups), tie_at_limit
+
+
+def score_rotation_options(request: ScoringRequest) -> ScoringResult:
+    """Apply constraints, water-first ranking, optional soil ties, and a top-three cap.
+
+    Farmer priority points are retained on the request for historical-record
+    compatibility, but cannot override the Product Owner's fixed water-first
+    policy. Missing water evidence stays unranked. Missing soil evidence never
+    blocks a water comparison and is never imputed.
+    """
+
+    scored: list[ScoredOption] = []
+    excluded: list[ExcludedOption] = []
+    for option in sorted(request.options, key=lambda item: item.candidate.candidate_id):
+        failed = tuple(
+            finding for finding in option.hard_constraints if finding.outcome == "failed"
         )
-        weighted_values.append((value, option.candidate.candidate_id))
+        if failed:
+            excluded.append(ExcludedOption(candidate=option.candidate, failed_constraints=failed))
+            continue
 
-    weighted_values.sort(key=lambda item: (-item[0], item[1]))
-    rank_groups: list[list[str]] = []
-    previous_value: Fraction | None = None
-    for value, candidate_id in weighted_values:
-        if value != previous_value:
-            rank_groups.append([])
-            previous_value = value
-        rank_groups[-1].append(candidate_id)
+        needs_review = tuple(
+            finding for finding in option.hard_constraints if finding.outcome == "needs_review"
+        )
+        scored.append(_build_provisional_option(option, needs_review_constraints=needs_review))
 
-    return RankingOutcome(
-        status="ranked",
-        rank_groups=tuple(tuple(group) for group in rank_groups),
+    baseline = next((option for option in scored if option.candidate.kind == "baseline"), None)
+    alternatives = [option for option in scored if option.candidate.kind != "baseline"]
+    rank_groups, rankable_by_id, unranked_count, comparability_issue = _rank_provisionally(
+        alternatives
+    )
+    selected, selected_groups, tie_at_limit = _top_three(rank_groups, rankable_by_id)
+
+    reasons = [
+        "This ranking is provisional and based on crop-level public evidence; "
+        "it is not local agronomic validation.",
+        "The water rating uses the least-resilient crop in the three-season "
+        "sequence as a conservative bottleneck.",
+        "Historical NASA indicators are context only; they are not a future-weather "
+        "forecast or a crop water-balance calculation.",
+    ]
+    if comparability_issue:
+        reasons.append(comparability_issue)
+    if unranked_count and comparability_issue is None:
+        reasons.append(
+            f"{unranked_count} alternative(s) lack comparable primary water "
+            "evidence and remain unranked."
+        )
+    if any(len(group) > 1 for group in rank_groups):
+        reasons.append(
+            "Options within a tied group use candidate ID for stable display order; "
+            "this is not an agronomic preference."
+        )
+    if tie_at_limit:
+        reasons.append(
+            "The three-item display limit splits a tied rank group; other equally "
+            "ranked options are omitted from the short list."
+        )
+    if len(alternatives) < TOP_RECOMMENDATION_LIMIT:
+        reasons.append(
+            f"Only {len(alternatives)} valid alternative(s) were available; "
+            "fewer than three can be returned."
+        )
+    elif selected and len(selected) < TOP_RECOMMENDATION_LIMIT:
+        reasons.append(
+            "Fewer than three alternatives had comparable water evidence; the "
+            "result does not fill the limit with unranked options."
+        )
+
+    status: RankingStatus
+    if not selected:
+        status = "withheld"
+    elif len(alternatives) < TOP_RECOMMENDATION_LIMIT:
+        status = "insufficient_options"
+    else:
+        status = "ranked"
+    ranking = RankingOutcome(
+        status=status,
+        rank_groups=selected_groups,
+        reasons=tuple(reasons),
+        method=RANKING_METHOD,
+        ranked_candidate_count=len(rankable_by_id),
+        unranked_candidate_count=unranked_count,
+        tie_at_limit=tie_at_limit,
+    )
+    return ScoringResult(
+        candidate_count=len(request.options),
+        ranking_method=RANKING_METHOD,
+        options=tuple(selected),
+        baseline_option=baseline,
+        excluded_options=tuple(excluded),
+        ranking=ranking,
     )

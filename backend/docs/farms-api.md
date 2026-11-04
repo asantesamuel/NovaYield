@@ -39,19 +39,13 @@ There is no farm delete endpoint in this ticket. A farm profile uses the catalog
   "soil_texture": "sandy loam",
   "irrigation_access": "rain-fed",
   "previous_crops": ["maize", "cowpea"],
-  "current_practice": "maize followed by cowpea",
-  "farmer_priorities": {
-    "water_resilience": 25,
-    "soil_health_potential": 25,
-    "yield_stability_proxy": 25,
-    "labor_feasibility": 25
-  }
+  "current_practice": "maize followed by cowpea"
 }
 ```
 
-`current_practice` is optional and must be a non-empty string when supplied; omit it when unknown. Optional fields can be set to `null` in a patch to clear them. `name`, `location_key`, and `farmer_priorities` cannot be cleared.
+`current_practice` is optional and must be a non-empty string when supplied; omit it when unknown. Optional fields can be set to `null` in a patch to clear them. `name` and `location_key` cannot be cleared.
 
-The response contains a string farm ID, the selected key/label, profile inputs, priorities, and timestamps. It omits `owner_user_id`, the catalog coordinates, and internal source metadata. A location that is later disabled remains resolvable for its existing farm profiles, but cannot be selected for new or changed profiles.
+The response contains a string farm ID, the selected key/label, profile inputs, and timestamps. It omits `owner_user_id`, catalog coordinates, internal source metadata, and legacy priority fields. NY-8 v2 uses fixed water-first ordering, so farm create/update/read no longer exposes priority editing. A location later disabled remains resolvable for its existing farm profiles, but cannot be selected for new or changed profiles.
 
 ## Browser session and CSRF
 

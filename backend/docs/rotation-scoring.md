@@ -1,31 +1,138 @@
-# NY-8 Qualitative Comparison and Ranking
+# NY-8 Rotation Assessment and Top-Three Selection
 
-## Boundary
+## Product policy
 
-`app.decisions.scoring` aggregates evidence-backed qualitative assessments for the four PRD criteria. It performs no NASA, MongoDB, API, or filesystem I/O and does not infer crop ratings from crop names. Agronomic assessment rules and locally validated crop traits remain separate inputs; the module owns weight normalization, validity gating, comparison, sensitivity, tie handling, and rank withholding.
+New `ny8-scoring-v2` results follow Product Owner Decision 11:
 
-## Inputs
+- Water resilience is the fixed primary criterion.
+- Soil-health potential can break a water tie only when every option in that tie
+  has comparable, evidence-backed soil evidence.
+- Yield stability and labour are not scored in this version.
+- Farmer priority points and weighted profiles are retained only to read legacy
+  records; they do not change new results.
+- Return at most three alternatives. Return a known current-practice baseline
+  separately.
 
-- Each candidate has exactly one `CriterionEvidence` record for water resilience, soil-health potential, yield-stability proxy, and labor feasibility.
-- A scored option retains its three-event crop sequence and the source candidate's rule findings. NASA-derived `EnvironmentalIndicator` DTOs can be attached to criterion evidence and are returned with their source, period, units, coverage, resolution, retrieval time, and live/cached/unavailable status intact.
-- An assessed rating must include a rationale, source reference, confidence, and a `comparison_basis`. Options can be compared on a criterion only when every option has assessed evidence using the same basis.
-- Missing data is represented as `not_assessed` with a `None` rating. The model rejects a hidden number or confidence attached to a not-assessed criterion. Attached NASA indicators with partial or unavailable coverage also prevent an overall rank; complete cached indicators retain their cached provenance and can be compared.
-- Each option can include hard-constraint outcomes. A failed hard constraint excludes that option before weighting; a hard constraint that needs review preserves partial criterion output but withholds the overall rank. Farmer priorities do not affect these outcomes.
-- NY-8 generation findings for continuity, prior history, calendar validation, and crop suitability also block a definitive rank while they remain `needs_review`. ROT-004 repeated-crop review remains a visible warning, not a hard exclusion.
+The original PRD and the earlier research handoff described four criteria and
+farmer-adjustable weights. Decision 11 narrowed the approved implementation.
+Restoring four weighted criteria or changing baseline-plus-three to
+baseline-plus-two requires an explicit Product Owner scope change.
 
-## Weighting and ordering
+## Request-to-result path
 
-- The default profile is 25 importance points per criterion.
-- Farmer priorities accept 0–100 importance points per criterion and normalize the four values to visible percentages totaling 100. Percentages are rounded to four decimal places with the final non-zero criterion absorbing the rounding remainder. A zero total is invalid. Zero weight for a criterion does not bypass the requirement for comparable evidence across all four criteria.
-- Internally, High/Moderate/Low map to ordinal ordering points 3/2/1 for weighted ordering. These points and composite totals are not returned or presented as measurements; the UI receives qualitative categories, disclosed weights, and tie-aware rank groups. The equal spacing is an implementation choice and should be revisited if the team adopts a different ordinal aggregation method.
-- Equal-weight and selected-weight rank groups are both returned. A changed ordering is marked `weight_sensitive`; equal groups are kept tied and sorted by candidate ID only for stable display.
-- If fewer than two options remain, evidence is missing/incomparable, or a blocking rule needs review, rank groups are withheld with reasons. Per-criterion ratings and their unchanged weights remain available; no missing value is changed to zero or replaced by redistributed weight.
-- The scorer orders the candidate set it receives. It does not choose two alternatives from the 216 mechanical combinations produced by the generator; the public Ejura profile lacks evidence for a defensible candidate-selection policy or ranking.
+The existing authenticated NY-9 route is the orchestration boundary:
 
-## Current evidence limitation
+1. Load the farm with the authenticated owner filter and resolve its supported
+   location.
+2. Retrieve cached/persisted NASA POWER snapshots for the farmer-reported past
+   season periods; calculate the three NY-13 indicators.
+3. Build three future planting-event slots separately from those historical
+   NASA periods.
+4. Generate the six-crop Cartesian product and include a known baseline once.
+5. Assess every generated candidate through the pure crop-evidence module.
+6. Pass the evidence DTOs to the existing `score_rotation_options()` function.
+7. Persist the generated pool and selected result through NY-20, then map it to
+   `RotationResultResponse`.
 
-The Ejura public profile has no plot-level history, locally validated crop suitability/calendar, NASA response values, or comparable evidence for all four criteria. It must therefore produce review/withheld behavior rather than a ranked recommendation. Scoring tests use synthetic values solely to verify aggregation, constraints, missingness, sensitivity, and ties; they are not demo or agronomic evidence.
+The scorer does not call NASA or MongoDB. Profile loading and assessment are
+pure functions in `app.decisions.crop_profiles` and
+`app.decisions.crop_evidence`. Route wiring stays in `app.api.workflows`.
 
-## Local checks
+## Evidence and criterion behavior
 
-From `backend/`, run `python -m pytest tests/test_rotation_scoring.py` and `python -m ruff check app/decisions/scoring.py tests/test_rotation_scoring.py`.
+The crop library is versioned as `ny8-crop-library-v1`. A profile can hold
+identity, variety, production system, calendar, maturity, and individually
+provenanced traits. Only supported facts are populated. The five desk-researched
+water classes remain provisional; rice stays unassessed until the production
+system is known. See [Crop Library and Sequence Assessment](crop-library-and-assessment.md)
+and the [crop-by-criterion evidence matrix](../../analysis_docs/research/ny-8-crop-criterion-evidence-matrix.md).
+
+For each of the three past farmer-reported NASA periods, at least two of the
+three approved indicators must have usable values. A usable indicator has a
+value and is not marked unavailable. Partial results remain partial with their
+coverage metadata; no new minimum coverage percentage is invented. If a period
+has fewer than two usable indicators, water is `not_assessed` and the ranking
+is withheld. The existing NY-13 policy permits two reliable indicators when
+one of three is unavailable.
+
+When environmental context is available, a sequence uses its least
+water-resilient crop as the conservative sequence rating. A candidate with an
+unassessed crop, currently rice without its ecology, cannot enter the primary
+ranking. NASA history is retained in the output but does not adjust crop
+classes: these past values are not future weather, crop-stage data, a soil
+moisture measurement, or a crop-water balance.
+
+Soil is emitted as `not_assessed` until comparable sequence-specific evidence
+and required management context are available. The assessor records ordered
+transitions from the last reported crop to the first candidate crop, then
+between each candidate event. Cited cowpea/maize and groundnut/maize research
+remains `needs_review` without variety, residue, fertility, and local-transfer
+context. No legume or family-based bonus is awarded.
+
+## Ranking and ties
+
+1. Exclude candidates only when an explicit hard constraint has outcome
+   `failed`. Unknown calendars, unvalidated suitability, and crop repetition
+   are review warnings, not automatic exclusions.
+2. Compare candidates with assessed water evidence on one shared basis, High
+   before Moderate before Low. Incompatible water bases withhold the ranking.
+3. Leave options with missing primary evidence unranked. If no alternatives
+   have comparable primary evidence, return ranking status `withheld`.
+4. Within a water tie, use soil only if every member has an assessed soil rating
+   on the same basis. Otherwise preserve the tie.
+5. Return at most three alternatives. Candidate ID provides stable display
+   order inside a tie; it is not an agronomic preference. If the three-item cap
+   cuts through a tied group, `tie_at_limit` and the rationale state that equal
+   options were omitted.
+
+The ranking is deterministic and provisional. Qualitative classes are not
+probabilities or numeric measurements. A rank never claims guaranteed yield,
+measured soil improvement, crop water sufficiency, profitability, or locally
+validated planting advice.
+
+## API response and audit summary
+
+The owner-scoped `RotationResultResponse` contains the separate baseline,
+selected `scoring_result.options`, tie/withholding details, criterion evidence,
+ordered transition assessments, NASA snapshot IDs and indicator provenance,
+plus generator, crop-library, assessment, rule-set, and scoring versions. It
+does not include the persisted 216-item candidate-generation list.
+
+`candidate_pool_summary` reports:
+
+- `total_generated`: generated alternatives plus baseline, if any.
+- `total_excluded`: candidates removed by failed hard constraints.
+- `total_needing_review`: generated candidates whose structural readiness is
+  `needs_review` (this includes nonblocking calendar/suitability warnings).
+- `total_assessed`: candidates with an assessed primary water criterion,
+  including the separate baseline when assessed.
+- `total_rankable`: comparable ranked alternatives, excluding the baseline.
+- `total_returned`: selected alternatives plus the separate baseline, if any.
+
+The `candidate_count` field remains an audit count. Seeing `216` there does not
+mean 216 recommendations are returned. The public response has no more than
+three alternatives; the complete pool remains in the private NY-20 result for
+traceability.
+
+## Synthetic test example
+
+This is a fabricated test-only example, not a NovaYield crop assessment:
+
+| Candidate | Synthetic water class | Soil | Rank group |
+| --- | --- | --- | --- |
+| `test-a` | High | Not assessed | 1 |
+| `test-b` | Moderate | Not assessed | 2 |
+| `test-c` | Low | Not assessed | 3 |
+
+It demonstrates only the ordering rule. If `test-a` and `test-b` were both
+High, they would share a rank group. Soil would not decide between them because
+it is unassessed.
+
+## Checks
+
+From `backend/`:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests\test_crop_profiles_and_assessment.py tests\test_rotation_scoring.py tests\test_environmental_workflow_api.py tests\test_rotation_result_api.py -q
+.\.venv\Scripts\python.exe -m ruff check app tests
+```

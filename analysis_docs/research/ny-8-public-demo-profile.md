@@ -11,7 +11,7 @@ prepared: 2026-11-04
 
 This profile assembles public information for a repeatable NovaYield decision-support scenario without inventing the characteristics or history of a real farm. It is an **area-level archetype**, not an individual farm, and is not locally validated. It can support input-contract, source/provenance, and provisional crop-class ranking behavior. It cannot establish farm water sufficiency or validate the resulting recommendations.
 
-The Product Owner's approved decisions in [the NovaYield research and product-decision record](../../novayield-research-and-product-decisions.md), especially Decision 12, remain controlling: all four criteria are active, equal weights apply by default, and farmer priorities may change the order with explicit trade-off explanations. All desk-research crop classes remain provisional. Missing or incomparable evidence for any active criterion withholds the overall rank.
+The Product Owner's approved decisions in [the NovaYield research and product-decision record](../../novayield-research-and-product-decisions.md), especially Decision 13, remain controlling: all four criteria are preferred when comparable, with farmer-priority water/soil fallback when they are not. All desk-research crop classes remain provisional. Alternatives without comparable water evidence remain unranked.
 
 ## Proposed profile
 
@@ -27,7 +27,7 @@ The Product Owner's approved decisions in [the NovaYield research and product-de
 | Plot irrigation access | Unknown; the scenario is labelled `rainfed_archetype` only for area-level context | The 88% survey result does not identify the irrigation status of any individual farm. Do not silently turn the group statistic into a farmer answer. |
 | Candidate crop records | Maize, cowpea, groundnut, cassava, yam, and rice | These are the approved MVP candidates. Public municipal and study sources confirm crop presence, not every crop's traits, suitability, or eligibility for every sequence. |
 | Plot's previous crops / current practice | Unknown | The published sources describe area practices and survey responses, not a complete three-event history for a particular plot. Therefore this profile has no asserted current-practice baseline. |
-| Ranking precedence | Four-criterion weighted comparison; equal by default or normalized saved farmer priorities | This reflects Product Owner Decision 12, not a surveyed farmer's preference. It does not permit unsupported criterion ratings. |
+| Ranking precedence | Four-criterion weighted comparison when comparable; otherwise farmer-priority water/soil fallback, or water-only if soil is not comparable | This reflects Product Owner Decision 13, not a surveyed farmer's preference. It does not permit unsupported criterion ratings. |
 
 ### Candidate public reference points
 
@@ -71,21 +71,22 @@ NY-15's safe rules still apply: enforce three consecutive events on the same plo
 
 ## Criterion evidence and ranking readiness
 
-NY-8 uses all four criteria with equal default weights or normalized farmer
-priorities. Water crop classes are normalized from cited desk research; this
-area archetype still lacks field water access, local variety/calendar, and
-actual NASA response values. See the
+NY-8 prefers all four criteria when their evidence is comparable, and otherwise
+uses normalized farmer priorities over comparable water/soil evidence (or water
+alone when soil is not comparable). Water crop classes are normalized from cited
+desk research; this area archetype still lacks field water access, local
+variety/calendar, and actual NASA response values. See the
 [provisional crop-by-criterion evidence matrix](ny-8-crop-criterion-evidence-matrix.md)
 for evidence scope and limitations.
 
 | Criterion / scope note | Public evidence available | Profile status for scoring |
 | --- | --- | --- |
 | Water resilience | Public sources support provisional relative crop classes for five crops; rice remains unassessed until its production ecology is known. No actual NASA response values are stored for these points/windows. | Not rank-ready: there is no individual farm history or NASA context. NY-9 withholds water assessment unless at least two of three approved indicators have usable values for each past period. |
-| Soil-health potential | Ghana legume/residue studies exist, but this profile has no soil test, plot residue history, or management record. | Active but `not_assessed`; blocks overall rank. |
-| Yield-stability proxy | Local and regional crop studies do not establish comparable sequence-level stability ratings. | Active but `not_assessed`; blocks overall rank. |
-| Labour feasibility | Farm labour availability, plot area, operation timing, and machinery/service access are not captured. | Active but `not_assessed`; blocks overall rank. |
+| Soil-health potential | Ghana legume/residue studies exist, but this profile has no soil test, plot residue history, or management record. | Active but `not_assessed`; omitted from fallback, which uses water alone. |
+| Yield-stability proxy | Local and regional crop studies do not establish comparable sequence-level stability ratings. | Active but `not_assessed`; selects fallback mode. |
+| Labour feasibility | Farm labour availability, plot area, operation timing, and machinery/service access are not captured. | Active but `not_assessed`; selects fallback mode. |
 
-This profile is **not rank-ready** and must not be used to produce a farmer-facing recommendation. It is an area archetype without a real farm, plot history, or stored NASA response. The current NY-9 workflow requires farmer-reported past seasons and usable NASA context; when the indicator minimum is not met, the primary assessment is unavailable and the overall rank is withheld. The cited crop classes alone do not supply those missing inputs. A real request must retain NASA source, coverage, freshness, and snapshot provenance.
+This profile is **not rank-ready** and must not be used to produce a farmer-facing recommendation. It is an area archetype without a real farm, plot history, or stored NASA response. The current NY-9 workflow requires farmer-reported past seasons and usable NASA context for water assessment. If water cannot be assessed for enough alternatives on a common basis, no ranked shortlist is returned; missing soil, yield-stability, or labour evidence alone selects the documented fallback and does not block ranking. The cited crop classes alone do not supply the missing farm or NASA inputs. A real request must retain NASA source, coverage, freshness, and snapshot provenance.
 
 ## Recommended use for NY-8
 

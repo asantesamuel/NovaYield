@@ -2,9 +2,9 @@
 
 ## Active project contract
 
-Product Owner Decision 12 activates all four criteria: water resilience, soil-health potential, yield-stability proxy, and labour feasibility. Equal 25% weights apply by default; persisted farm priorities can change the ordering. A hard constraint is applied before scoring and cannot be overridden by a user preference. The response explains the gains and concessions between ranked options.
+Product Owner Decision 13 prefers all four criteria when comparable evidence is available, and selects a priority-weighted water/soil fallback when it is not. Soil is included in fallback only when comparable across water-assessed options; otherwise water alone is used. Persisted farm priorities can change order over the criteria used by either mode. A hard constraint is applied before scoring and cannot be overridden by a preference. The response explains gains and concessions between ranked options.
 
-An overall rank requires comparable, assessed evidence for every criterion on every option being compared. Missing evidence stays `not_assessed`; the scorer neither invents a rating nor redistributes its weight. The current research and farm schema do not support complete four-criterion sequence assessments, so the actual workflow withholds ranking. Synthetic complete evidence is used only in tests of scoring mechanics.
+Four-criterion mode requires comparable, assessed evidence for every criterion on every eligible option. Missing evidence stays `not_assessed`; the scorer neither invents a rating nor uses the missing criterion's weight. When that evidence gate fails, the scorer applies the documented fallback to the water-assessed subset. Synthetic complete evidence is used only in tests of four-criterion scoring mechanics.
 
 ## Versioned crop profiles
 
@@ -46,13 +46,13 @@ groundnut/maize relationships remain `needs_review` without variety, residue,
 soil-fertility, and local-transfer context. A relationship warning supplies no
 soil score or nitrogen credit.
 
-The assessor retains citations, assumptions, confidence, and missing-context reasons. It does not turn missing ratings into scores. The evidence and limitations are recorded in the [crop-by-criterion evidence matrix](../../analysis_docs/research/ny-8-crop-criterion-evidence-matrix.md).
+The assessor retains citations, assumptions, confidence, and missing-context reasons. It does not turn missing ratings into scores. Since current soil evidence is `not_assessed`, the actual fallback uses water alone; farmer priorities attached to unavailable criteria are ignored and disclosed. The evidence and limitations are recorded in the [crop-by-criterion evidence matrix](../../analysis_docs/research/ny-8-crop-criterion-evidence-matrix.md).
 
 ## Hard constraints and review warnings
 
 The scorer excludes a candidate only for an explicit `HardConstraintFinding` with outcome `failed`. Unknown calendars, unvalidated suitability, unknown history, and crop repetition remain visible review warnings unless an approved hard rule says otherwise. A preference weight cannot override a failed rule.
 
-This distinction keeps data-integrity failures separate from agronomic uncertainty. Missing or incomparable evidence in any active criterion prevents the overall ranking but leaves available criterion findings visible.
+This distinction keeps data-integrity failures separate from agronomic uncertainty. Missing or incomparable four-criterion evidence selects fallback; alternatives without comparable water evidence remain unranked. Available criterion findings stay visible in either case.
 
 ## Synthetic test example
 

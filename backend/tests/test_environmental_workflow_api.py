@@ -508,7 +508,7 @@ def test_rotation_recommendation_slots_must_be_future_periods() -> None:
         )
 
 
-def test_rotation_workflow_saves_priorities_and_withholds_missing_four_criterion_rank() -> None:
+def test_rotation_workflow_falls_back_when_four_criterion_evidence_is_incomplete() -> None:
     owner_id = PydanticObjectId()
     farm = make_farm(PydanticObjectId(), owner_id)
     farm.farmer_priorities = PriorityPoints(
@@ -565,6 +565,19 @@ def test_rotation_workflow_saves_priorities_and_withholds_missing_four_criterion
     body = response.model_dump(mode="json")
     saved_call = result_repository.create_calls[0]
     saved_result = saved_call["decision_inputs"]
+    alternative_inputs = [
+        item for item in saved_result.scoring_request.options if item.candidate.kind != "baseline"
+    ]
+    water_rankable_count = sum(
+        any(
+            criterion.criterion == "water_resilience"
+            and criterion.status == "assessed"
+            and criterion.rating is not None
+            and criterion.comparison_basis is not None
+            for criterion in option.criteria
+        )
+        for option in alternative_inputs
+    )
 
     assert len(snapshot_service.requests) == 3
     assert [call[0].season_label for call in snapshot_service.requests] == [
@@ -605,18 +618,22 @@ def test_rotation_workflow_saves_priorities_and_withholds_missing_four_criterion
     assert saved_call["candidate_generation"].readiness == "needs_review"
     assert len(saved_call["candidate_generation"].candidates) == 216
     assert saved_call["scoring_result"].excluded_options == ()
-    assert saved_call["scoring_result"].scoring_version == "ny8-scoring-v3"
+    assert saved_call["scoring_result"].scoring_version == "ny8-scoring-v4"
     assert saved_call["scoring_result"].ranking_method == "weighted_ordinal_sum_v1"
-    assert saved_call["scoring_result"].ranking.status == "withheld"
-    assert saved_call["scoring_result"].options == ()
+    assert saved_call["scoring_result"].ranking_mode == "water_soil_fallback"
+    assert saved_call["scoring_result"].ranking.status == "ranked"
+    assert saved_call["scoring_result"].ranking.criteria_used == ("water_resilience",)
+    assert saved_call["scoring_result"].ranking.unranked_candidate_count == (
+        len(alternative_inputs) - water_rankable_count
+    )
+    assert len(saved_call["scoring_result"].options) == 3
+    assert any(
+        "Yield stability and labour" in reason
+        for reason in saved_call["scoring_result"].ranking.reasons
+    )
     assert [
         share.percent for share in saved_call["scoring_result"].selected_weights.normalized_weights
-    ] == [
-        50,
-        20,
-        20,
-        10,
-    ]
+    ] == [100, 0, 0, 0]
     assert all(
         criterion.criterion
         in {
@@ -634,8 +651,10 @@ def test_rotation_workflow_saves_priorities_and_withholds_missing_four_criterion
     assert len(saved_result.environmental_snapshot_ids) == 3
     assert body["scoring_result"]["selected_weights"]["source"] == "farmer_selected"
     assert body["scoring_result"]["default_weights"]["source"] == "default_equal"
-    assert len(body["scoring_result"]["options"]) == 0
-    assert body["scoring_result"]["ranking"]["status"] == "withheld"
+    assert len(body["scoring_result"]["options"]) == 3
+    assert body["scoring_result"]["ranking_mode"] == "water_soil_fallback"
+    assert body["scoring_result"]["ranking"]["status"] == "ranked"
+    assert body["scoring_result"]["ranking"]["criteria_used"] == ["water_resilience"]
     assert body["crop_library_version"] == "ny8-crop-library-v1"
     assert body["assessment_version"] == "ny8-sequence-assessment-v2"
     assert body["rule_set_version"] == "ny8-rules-v1"
@@ -645,8 +664,8 @@ def test_rotation_workflow_saves_priorities_and_withholds_missing_four_criterion
         "total_excluded": 0,
         "total_needing_review": 216,
         "total_assessed": 0,
-        "total_rankable": 0,
-        "total_returned": 1,
+        "total_rankable": water_rankable_count,
+        "total_returned": 4,
     }
     assert "candidate_generation" not in body
     assert len(body["scoring_result"]["baseline_option"]["transition_assessments"]) == 3

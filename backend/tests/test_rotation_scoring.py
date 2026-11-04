@@ -196,6 +196,8 @@ def test_farmer_priorities_reorder_four_criteria_and_disclose_tradeoffs() -> Non
         ("water-winner",),
     )
     assert result.ranking_method == "weighted_ordinal_sum_v1"
+    assert result.ranking_mode == "four_criterion"
+    assert result.ranking.criteria_used == CRITERIA
     assert tuple(item.criterion for item in result.options[0].criteria) == CRITERIA
     assert [share.percent for share in result.selected_weights.normalized_weights] == [
         100,
@@ -229,7 +231,7 @@ def test_equal_weights_use_soil_rating_when_other_criteria_match() -> None:
     assert result.ranking.rank_groups == (("soil-high",), ("soil-low",))
 
 
-def test_missing_one_criterion_withholds_ranking_without_redistributing_weight() -> None:
+def test_missing_one_criterion_uses_water_only_fallback_when_soil_is_not_comparable() -> None:
     result = score_rotation_options(
         ScoringRequest(
             options=(
@@ -244,10 +246,63 @@ def test_missing_one_criterion_withholds_ranking_without_redistributing_weight()
         )
     )
 
-    assert result.options == ()
-    assert result.ranking.status == "withheld"
-    assert any("soil_health_potential" in reason for reason in result.ranking.reasons)
-    assert any("no weight was redistributed" in reason for reason in result.ranking.reasons)
+    assert result.ranking_mode == "water_soil_fallback"
+    assert result.ranking.status == "ranked"
+    assert result.ranking.criteria_used == ("water_resilience",)
+    assert [item.candidate.candidate_id for item in result.options] == ["option-a", "option-b"]
+    assert [share.percent for share in result.selected_weights.normalized_weights] == [
+        100,
+        0,
+        0,
+        0,
+    ]
+    assert any("Soil evidence is not comparable" in reason for reason in result.ranking.reasons)
+
+
+def test_farmer_priorities_reorder_water_soil_fallback_and_explain_tradeoffs() -> None:
+    result = score_rotation_options(
+        ScoringRequest(
+            options=(
+                make_option(
+                    "water-option",
+                    ("cowpea", "yam", "groundnut"),
+                    "high",
+                    soil_rating="low",
+                    yield_rating=None,
+                ),
+                make_option(
+                    "soil-option",
+                    ("groundnut", "cassava", "cowpea"),
+                    "moderate",
+                    soil_rating="high",
+                    yield_rating=None,
+                ),
+            ),
+            farmer_priorities=PriorityPoints(
+                water_resilience=100,
+                soil_health_potential=0,
+                yield_stability_proxy=50,
+                labor_feasibility=50,
+            ),
+        )
+    )
+
+    assert result.ranking_mode == "water_soil_fallback"
+    assert result.ranking.criteria_used == ("water_resilience", "soil_health_potential")
+    assert result.equal_weight_ranking.rank_groups == (("soil-option",), ("water-option",))
+    assert result.ranking.rank_groups == (("water-option",), ("soil-option",))
+    assert [share.percent for share in result.selected_weights.normalized_weights] == [
+        100,
+        0,
+        0,
+        0,
+    ]
+    assert result.sensitivity == "weight_sensitive"
+    tradeoff = result.ranking.tradeoffs[0]
+    assert tradeoff.higher_ranked_candidate_id == "water-option"
+    assert {item.criterion for item in tradeoff.strengths} == {"water_resilience"}
+    assert {item.criterion for item in tradeoff.concessions} == {"soil_health_potential"}
+    assert "not applied" in " ".join(result.ranking.reasons)
 
 
 def test_missing_water_evidence_stays_unranked_and_does_not_fill_top_three() -> None:
@@ -263,8 +318,9 @@ def test_missing_water_evidence_stays_unranked_and_does_not_fill_top_three() -> 
     )
 
     assert result.options == ()
-    assert result.ranking.unranked_candidate_count == 2
-    assert result.ranking.status == "withheld"
+    assert result.ranking.unranked_candidate_count == 1
+    assert result.ranking.status == "insufficient_options"
+    assert result.ranking.criteria_used == ("water_resilience", "soil_health_potential")
     assert any("water_resilience" in reason for reason in result.ranking.reasons)
 
 
@@ -312,7 +368,7 @@ def test_returns_only_three_and_reports_tie_at_display_limit() -> None:
     assert result.ranking.rank_groups == (("option-a", "option-b", "option-c"),)
 
 
-def test_v3_result_model_rejects_more_than_three_alternatives() -> None:
+def test_v4_result_model_rejects_more_than_three_alternatives() -> None:
     options = tuple(
         make_option(
             f"option-{letter}",
@@ -475,5 +531,6 @@ def test_synthetic_four_criterion_scoring_is_deterministic_and_labeled_provision
     assert first.model_dump() == second.model_dump()
     assert len(first.options) == 3
     assert first.provisional is True
-    assert first.scoring_version == "ny8-scoring-v3"
+    assert first.scoring_version == "ny8-scoring-v4"
+    assert first.ranking_mode == "four_criterion"
     assert first.default_weights.normalized_weights == first.selected_weights.normalized_weights

@@ -120,13 +120,16 @@ candidate-generation and scoring outputs; the route returns the saved result.
 Because this POST may retrieve snapshots and always saves a result, browser
 callers using the cookie session must send the CSRF token in `X-CSRF-Token`.
 
-This orchestration returns at most three **provisional alternatives** only when
-all four criteria have comparable evidence across the options being compared.
-Farm priorities alter the weighted order, and the result includes equal-weight
-and selected-priority views plus explicit criterion trade-offs. Missing soil,
-yield-stability, labour, or water evidence withholds the overall rank; it is not
-imputed and weights are not redistributed. The current public profile is
-therefore not rank-ready. The workflow may examine all 6³ (216) combinations
+This orchestration returns at most three **provisional alternatives**. It uses
+all four criteria when their evidence is comparable across the candidate set;
+otherwise it falls back to the water-assessed subset and uses soil too only if
+soil ratings are comparable across that subset. Farmer priorities are
+normalized across the criteria used in either mode. The response identifies the
+mode, effective weights, ignored priorities, and criterion trade-offs. Options
+without comparable water evidence remain unranked. The current assessor has no
+comparable soil/yield/labour ratings, so the live workflow uses water-only
+fallback; priorities cannot change that order until another comparable fallback
+criterion is available. The workflow may examine all 6³ (216) combinations
 internally; `scoring_result.options` contains at most three. A known current
 practice is separate in `baseline_option`. Calendar/suitability warnings,
 historical NASA provenance, assumptions, and trade-offs remain visible. The

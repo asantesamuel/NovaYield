@@ -256,6 +256,7 @@ def create_workflow_router(current_active_user: Callable[..., User]) -> APIRoute
                 )
                 for candidate in generated.candidates
             ),
+            farmer_priorities=farm.farmer_priorities,
         )
         scoring_result = score_rotation_options(scoring_request)
         snapshot_ids = tuple(

@@ -1,4 +1,4 @@
-"""Farm profile value types and legacy document defaults shared across NY-19 layers."""
+"""Farm profile value types and equal-weight preference defaults shared across NY-19 layers."""
 
 from typing import Annotated, Literal
 
@@ -19,8 +19,7 @@ LocationKey = Annotated[
     ),
 ]
 
-# Preserved only for fixtures/records created before NY-8 v2 fixed water-first
-# ordering. Current farm API DTOs do not accept or return these values.
+# Default preference points used when a farmer has not selected priorities.
 DEFAULT_FARMER_PRIORITIES: dict[str, int] = {
     "water_resilience": 25,
     "soil_health_potential": 25,
@@ -30,7 +29,7 @@ DEFAULT_FARMER_PRIORITIES: dict[str, int] = {
 
 
 def default_farmer_priorities() -> PriorityPoints:
-    """Create legacy priority values for backwards-compatibility fixtures."""
+    """Create equal four-criterion priorities without sharing mutable model state."""
 
     return PriorityPoints(**DEFAULT_FARMER_PRIORITIES)
 

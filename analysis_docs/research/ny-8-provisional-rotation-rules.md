@@ -1,30 +1,32 @@
-# NY-8 Provisional Water-First Rotation Policy
+# NY-8 Provisional Four-Criterion Rotation Policy
 
 **Status:** Product Owner approved implementation policy; crop ratings and all agronomic interpretation remain provisional until local review.
 
-**Version:** 0.2
+**Version:** 0.3
 
-**Updated:** 3 November 2026
+**Updated:** 4 November 2026
 
-**Purpose:** Define a transparent method that returns up to three water-first options without filling missing evidence or claiming validated farm advice.
+**Purpose:** Define a transparent, farmer-prioritized method that returns up to three options only when all four criteria have comparable evidence; never fill missing evidence or claim validated farm advice.
 
 This is a documented research synthesis and software rule set, not a claim of personal agronomy credentials or local field validation. The public-data Ejura profile is an area archetype, not a real farm.
 
 ## 1. Product decision and scope
 
-- **Primary criterion:** relative crop water-stress resilience, represented as High / Moderate / Low. The rating is a desk-researched crop-level proxy; it is not an estimate of litres, irrigation need, water sufficiency, yield, or future weather.
-- **Optional secondary criterion:** soil-health potential may break a tie between options with the same water rank only when every option in that tied group has assessed soil evidence on the same comparison basis. Missing soil evidence leaves the water tie intact.
-- **Not scored:** yield-stability proxy and labour feasibility are omitted from this ranking version. Farmer-entered priority points do not change the fixed water-first order. Historic farm/result records may still contain those legacy fields.
+- **Active criteria:** water resilience, soil-health potential, yield-stability proxy, and labour feasibility. Ratings remain provisional and evidence-scoped.
+- **Weights:** use equal 25% weights when no priorities are saved. Normalize farmer-entered 0–100 priority points to percentages when preferences exist. Weights may change the order but never override a hard constraint.
+- **Ordinal scoring implementation choice:** map High/Moderate/Low to 3/2/1 and calculate a weighted sum. This assumes equal spacing between qualitative categories. It is compensatory: gains on a high-weight criterion can offset weaker ratings elsewhere. It is not a probability or measured outcome.
+- **Missing evidence:** every alternative must have all four criteria assessed on comparable bases. Otherwise withhold the overall ranking; do not impute, use a neutral value, or redistribute weights. Preserve the available criterion findings and state which evidence is missing.
+- **Current data consequence:** the water class is provisional, while soil, sequence-level yield stability, and farm-specific labour feasibility lack comparable evidence/inputs. The current real workflow is therefore expected to withhold a rank until those gaps are addressed.
 - **Output limit:** return at most the **top three** alternatives. This matches NY-8's original requirement for three options. There is no NY-8 requirement for four; the earlier “top four” wording was an implementation/documentation mistake and is superseded.
 - If a known farmer-reported current practice exists, return it in a separate `baseline_option`, not as one of the three alternatives.
 - Preserve a tied group. Within ties, use candidate ID only for stable display order; do not prefer more diverse sequences. If the three-item limit cuts through a tie, disclose that equally ranked options were omitted from the short list.
-- Missing or incomparable primary water evidence leaves that option unranked. Return only the supported ranked subset; if none is comparable, withhold the overall rank. Do not impute or replace missing values.
+- Missing or incomparable evidence in any active criterion leaves the overall ranking withheld; do not return a partial rank based on only the criteria that happen to be available. Do not impute or replace missing values.
 - Apply evidence-backed hard constraints before ranking. A review-needed calendar or crop suitability remains visible as a provisional warning; it does not become a fabricated pass or fail. Results are explicitly labelled provisional.
 - Historical NASA POWER indicators remain attached for traceability, but do not adjust the crop-level class or predict future recommendation seasons.
 
-This is a non-compensatory, lexicographic policy: soil cannot offset a worse water rating. Choosing an explicit criterion order is appropriate because the Product Owner has stated water comes first; incomplete multi-criteria methods also preserve incomparability rather than manufacture a complete score. See the methodology references below.
+Return the default equal-weight ranking and selected-priority ranking, normalized weights, sensitivity status, and criterion-level trade-offs. Keep a separate known baseline, return no more than three alternatives, and preserve ties with candidate-ID display order only. Review-needed calendar and suitability warnings remain visible; provisional results are not locally validated.
 
-## 2. Water evidence table used by NY-8 v2
+## 2. Water evidence table used by NY-8 v3
 
 “High” means relatively stronger resilience to water stress within this provisional candidate set, not low water consumption. The underlying sources use different crops, settings, and methods, so the categories are deliberately coarse, confidence is shown separately, and all results remain provisional.
 
@@ -45,34 +47,34 @@ For each three-season sequence, use the **least water-resilient rated crop** as 
 
 Do not interpret this class as crop water requirement. FAO defines crop evapotranspiration using reference evapotranspiration and a crop coefficient (`ETc = ETo × Kc`); crop stage, climate, and growing-period length matter. The current NASA POWER inputs are historical precipitation and temperature only. They do not include all required water-balance inputs such as humidity, wind, radiation, effective rainfall, irrigation delivery, soil storage, or the matching crop-stage coefficients. Therefore NASA values are provenance/context in the result, not a quantity used to assign crop class.
 
-## 3. Soil-health tie-break policy
+## 3. Soil-health evidence status
 
 Ghana field research supports specific legume/fallow/residue relationships before maize under named treatments; it does not support a universal soil benefit for every legume or sequence. Soil-health effects depend on biomass, variety, residue fate, soil, and management. The current farm/result inputs do not capture enough of that context. Therefore:
 
-1. Current NY-8 v2 emits soil-health potential as `not_assessed` for the public profile and does not use it to break a tie.
-2. A later implementation may supply a sourced soil assessment only when sequence-specific evidence and required management inputs exist.
-3. Soil may refine ordering only inside a tied water group and only if every option in that group has ratings on the same soil comparison basis. Otherwise leave the group tied.
+1. Current NY-8 v3 emits soil-health potential as `not_assessed` because comparable sequence evidence and required management inputs are missing.
+2. A sourced assessment requires sequence-level evidence and relevant soil/residue/management context.
+3. Missing soil evidence blocks the four-criterion overall ranking; it is not a neutral rating and does not receive redistributed weight.
 4. Never describe a potential as measured soil health, nitrogen credit, or guaranteed yield improvement.
 
 Relevant research includes [Ghana cowpea/legume–maize rotation work](https://doi.org/10.1017/S0014479718000273) and [maize rotations with food legumes on Ghanaian Vertisols](https://ugspace.ug.edu.gh/items/d346fb22-09de-4507-9c62-3d1c55e91c7e); results are treatment- and site-specific.
 
 ## 4. Ranking steps and response behavior
 
-1. Generate three-event sequences deterministically. Keep the known current practice as a separate baseline. Repeated crops remain candidates and receive ROT-004 review warnings; do not add a blanket repeat or single-crop exclusion without an approved, evidence-backed rule.
-2. Apply explicitly failed hard constraints before assessment. Keep `needs_review` constraints as visible warnings because the product has accepted provisional desk-research results; do not describe such results as validated.
-3. Build the two active criterion records: water and soil. Each includes rating/status, confidence, rationale, comparison basis, citations, assumptions, and any historical NASA indicators. Require at least two usable approved NASA indicators in every past analysis period before assessing primary water; the underlying NY-13 policy permits two when one of three is unavailable and does not set a partial-coverage percentage threshold.
-4. Partition by comparable water basis. If all assessed water evidence uses one basis, order High before Moderate before Low. Options missing water remain unranked. If rated options use different bases, withhold ranking rather than select a convenient majority basis.
-5. Within a water tie only, order by soil if every tied option is assessed on one common basis. Missing soil is not a neutral rating and does not block water order.
-6. Select no more than three alternatives. Within a tie, use candidate ID for stable display only; `tie_at_limit` and rationale disclose when the cutoff hides other equal alternatives. This ordering does not break the agronomic tie.
-7. Return the baseline separately, plus candidate-pool counts, provisional status, crop-library/assessment/rule/scoring versions, per-option evidence, NASA snapshot references, and tie/withholding reasons.
+1. Generate three-event sequences deterministically. Keep known current practice as a separate baseline. Repeated crops remain candidates with ROT-004 review warnings unless an approved hard rule says otherwise.
+2. Apply explicitly failed hard constraints before assessment; farmer priorities cannot override them. Preserve `needs_review` warnings.
+3. Build records for all four criteria with status, rating when supported, confidence, rationale, comparison basis, citations, assumptions, and relevant NASA inputs. NY-13 requires at least two usable approved NASA indicators in each past analysis period; partial coverage is retained and no percentage threshold is invented.
+4. Require each compared alternative to have all four criteria assessed on one common comparison basis per criterion. If any criterion is missing or incomparable for any alternative, withhold ranking and do not redistribute its weight.
+5. Normalize saved priority points to percentages; if none exist, use equal weights. Compare both the equal-weight and selected-priority views and report whether the shortlist changes.
+6. Explain the selected ranking with criterion ratings, weights, pairwise gains/concessions, and any tie at the three-item display limit. Candidate ID is stable display order only.
+7. Return at most three alternatives and the baseline separately, plus pool counts, status, versions, criterion provenance, NASA snapshot references, and tie/withholding reasons.
 
 The generator may examine 216 combinations from six crops internally. The API result's `scoring_result.options` contains no more than three alternatives; pool counts may appear as audit provenance. The returned list is not a prediction and does not imply that a displayed tied option is strictly better than another tied option. NY-13's existing minimum of two usable indicators in each past period is required before the primary water criterion can be assessed; partial indicators retain their coverage and no new coverage threshold is invented.
 
-## 5. Why this handles the evidence blocker
+## 5. Evidence and weighting trade-offs
 
-Multi-criteria research distinguishes compensatory methods (one criterion can offset another) from non-compensatory/priority methods. A fixed lexicographic order makes water primary without inventing weights or allowing a soil estimate to compensate for weaker water evidence. Research on evidence-strength MCDA explicitly recognizes “incomparability” when evidence is not strong enough to distinguish options; incomplete-data decision methods preserve missingness or partial orders rather than silently inventing values. NovaYield uses the simplest auditable version of that idea: rank comparable water evidence, optionally refine a genuine tie, and otherwise keep the tie or withhold.
+Multi-criteria research distinguishes compensatory methods (one criterion can offset another) from non-compensatory methods. NovaYield now uses a compensatory weighted ordinal sum because the Product Owner wants farmer priorities to affect order. The weights make the trade-off visible, but do not make weak evidence stronger. Evidence-strength MCDA recognizes incomparability when evidence cannot support a distinction; NovaYield therefore withholds when any active criterion is missing or incomparable instead of filling a rating or reweighting the remainder.
 
-This reduces the evidence burden from three equally required comparisons to one primary comparison. It does **not** make weak evidence strong. Crop classes remain provisional, rice remains unranked until its ecology is known, soil is not currently used, and local validation is still required before describing results as agronomic advice.
+Four criteria can better reflect different farmer priorities only when all four ratings are supported and comparable. With current research, the scorer will report available evidence and withhold a real ranking. Soil and yield findings are sequence/variety/context-specific; labour feasibility additionally needs farm area, labour availability, operation timing, and machinery/service access. Rice remains unassessed until its production ecology is known. Local validation remains required before describing any result as agronomic advice.
 
 ## References
 

@@ -508,9 +508,7 @@ def test_rotation_recommendation_slots_must_be_future_periods() -> None:
         )
 
 
-def test_rotation_workflow_uses_past_reports_and_returns_only_top_three_provisional_options() -> (
-    None
-):
+def test_rotation_workflow_saves_priorities_and_withholds_missing_four_criterion_rank() -> None:
     owner_id = PydanticObjectId()
     farm = make_farm(PydanticObjectId(), owner_id)
     farm.farmer_priorities = PriorityPoints(
@@ -594,10 +592,10 @@ def test_rotation_workflow_uses_past_reports_and_returns_only_top_three_provisio
         )
     )
     assert saved_call["owner_user_id"] == owner_id
-    assert saved_call["decision_inputs"].scoring_request.farmer_priorities is None
+    assert saved_call["decision_inputs"].scoring_request.farmer_priorities == farm.farmer_priorities
     assert saved_call["decision_inputs"].generation_request.prior_crop_history == ("yam",)
     assert result_repository.saved_result is not None
-    assert result_repository.saved_result.farm_inputs.farmer_priorities is None
+    assert result_repository.saved_result.farm_inputs.farmer_priorities == farm.farmer_priorities
     assert result_repository.saved_result is not None
     assert saved_result.generation_request.current_practice.crop_ids == (
         "maize",
@@ -607,40 +605,52 @@ def test_rotation_workflow_uses_past_reports_and_returns_only_top_three_provisio
     assert saved_call["candidate_generation"].readiness == "needs_review"
     assert len(saved_call["candidate_generation"].candidates) == 216
     assert saved_call["scoring_result"].excluded_options == ()
-    assert saved_call["scoring_result"].scoring_version == "ny8-scoring-v2"
-    assert saved_call["scoring_result"].ranking_method == "lexicographic_water_then_optional_soil"
-    assert saved_call["scoring_result"].ranking.status == "ranked"
-    assert len(saved_call["scoring_result"].options) == 3
+    assert saved_call["scoring_result"].scoring_version == "ny8-scoring-v3"
+    assert saved_call["scoring_result"].ranking_method == "weighted_ordinal_sum_v1"
+    assert saved_call["scoring_result"].ranking.status == "withheld"
+    assert saved_call["scoring_result"].options == ()
+    assert [
+        share.percent for share in saved_call["scoring_result"].selected_weights.normalized_weights
+    ] == [
+        50,
+        20,
+        20,
+        10,
+    ]
     assert all(
-        criterion.criterion in {"water_resilience", "soil_health_potential"}
-        for option in saved_call["scoring_result"].options
+        criterion.criterion
+        in {
+            "water_resilience",
+            "soil_health_potential",
+            "yield_stability_proxy",
+            "labor_feasibility",
+        }
+        for option in saved_call["decision_inputs"].scoring_request.options
         for criterion in option.criteria
     )
-    first_water_criterion = saved_call["scoring_result"].options[0].criteria[0]
+    first_water_criterion = saved_call["scoring_result"].baseline_option.criteria[0]
     assert len(first_water_criterion.environmental_inputs) == 9
     assert all(item.data_status == "cached" for item in first_water_criterion.environmental_inputs)
     assert len(saved_result.environmental_snapshot_ids) == 3
-    assert body["scoring_result"]["selected_weights"] is None
-    assert body["scoring_result"]["default_weights"] is None
-    assert len(body["scoring_result"]["options"]) == 3
-    assert body["scoring_result"]["ranking"]["status"] == "ranked"
+    assert body["scoring_result"]["selected_weights"]["source"] == "farmer_selected"
+    assert body["scoring_result"]["default_weights"]["source"] == "default_equal"
+    assert len(body["scoring_result"]["options"]) == 0
+    assert body["scoring_result"]["ranking"]["status"] == "withheld"
     assert body["crop_library_version"] == "ny8-crop-library-v1"
-    assert body["assessment_version"] == "ny8-sequence-assessment-v1"
+    assert body["assessment_version"] == "ny8-sequence-assessment-v2"
     assert body["rule_set_version"] == "ny8-rules-v1"
     assert len(body["environmental_snapshot_ids"]) == 3
     assert body["candidate_pool_summary"] == {
         "total_generated": 216,
         "total_excluded": 0,
         "total_needing_review": 216,
-        "total_assessed": 125,
-        "total_rankable": 124,
-        "total_returned": 4,
+        "total_assessed": 0,
+        "total_rankable": 0,
+        "total_returned": 1,
     }
     assert "candidate_generation" not in body
-    assert all(
-        len(option["transition_assessments"]) == 3 for option in body["scoring_result"]["options"]
-    )
-    first_event = body["scoring_result"]["options"][0]["candidate"]["events"][0]["event"]
+    assert len(body["scoring_result"]["baseline_option"]["transition_assessments"]) == 3
+    first_event = body["scoring_result"]["baseline_option"]["candidate"]["events"][0]["event"]
     assert first_event["plot_id"] == "plot-a"
     serialized = str(body).lower()
     assert "latitude" not in serialized

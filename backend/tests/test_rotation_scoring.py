@@ -104,7 +104,9 @@ def make_option(
     crop_ids: tuple[str, str, str],
     water_rating: str | None,
     *,
-    soil_rating: str | None = None,
+    soil_rating: str | None = "moderate",
+    yield_rating: str | None = "moderate",
+    labor_rating: str | None = "moderate",
     water_basis: str = WATER_BASIS,
     soil_basis: str = SOIL_BASIS,
     water_status: str = "assessed",
@@ -124,16 +126,27 @@ def make_option(
                 rationale="Water evidence is intentionally missing in this test.",
             )
         )
-    if soil_rating is not None:
-        criteria.append(make_assessment("soil_health_potential", soil_rating, basis=soil_basis))
-    else:
-        criteria.append(
-            CriterionEvidence(
-                criterion="soil_health_potential",
-                status="not_assessed",
-                rationale="Soil evidence is intentionally missing in this test.",
+    for criterion, rating in (
+        ("soil_health_potential", soil_rating),
+        ("yield_stability_proxy", yield_rating),
+        ("labor_feasibility", labor_rating),
+    ):
+        if rating is None:
+            criteria.append(
+                CriterionEvidence(
+                    criterion=criterion,  # type: ignore[arg-type]
+                    status="not_assessed",
+                    rationale=f"{criterion} evidence is intentionally missing in this test.",
+                )
             )
-        )
+        else:
+            criteria.append(
+                make_assessment(
+                    criterion,
+                    rating,
+                    basis=soil_basis if criterion == "soil_health_potential" else WATER_BASIS,
+                )
+            )
     if any(item.outcome == "failed" for item in hard_constraints):
         criteria = []
     return RotationOptionEvidence(
@@ -144,15 +157,29 @@ def make_option(
     )
 
 
-def test_fixed_water_priority_overrides_farmer_points_and_legacy_criteria() -> None:
+def test_farmer_priorities_reorder_four_criteria_and_disclose_tradeoffs() -> None:
     request = ScoringRequest(
         options=(
-            make_option("soil-winner", ("maize", "cowpea", "yam"), "moderate", soil_rating="high"),
-            make_option("water-winner", ("cowpea", "yam", "groundnut"), "high", soil_rating="low"),
+            make_option(
+                "soil-winner",
+                ("maize", "cowpea", "yam"),
+                "moderate",
+                soil_rating="high",
+                yield_rating="high",
+                labor_rating="high",
+            ),
+            make_option(
+                "water-winner",
+                ("cowpea", "yam", "groundnut"),
+                "high",
+                soil_rating="low",
+                yield_rating="low",
+                labor_rating="low",
+            ),
         ),
         farmer_priorities=PriorityPoints(
-            water_resilience=0,
-            soil_health_potential=100,
+            water_resilience=100,
+            soil_health_potential=0,
             yield_stability_proxy=0,
             labor_feasibility=0,
         ),
@@ -164,14 +191,26 @@ def test_fixed_water_priority_overrides_farmer_points_and_legacy_criteria() -> N
         "water-winner",
         "soil-winner",
     ]
-    assert result.ranking_method == "lexicographic_water_then_optional_soil"
-    assert result.options[0].criteria[0].criterion == "water_resilience"
+    assert result.equal_weight_ranking.rank_groups == (
+        ("soil-winner",),
+        ("water-winner",),
+    )
+    assert result.ranking_method == "weighted_ordinal_sum_v1"
     assert tuple(item.criterion for item in result.options[0].criteria) == CRITERIA
-    assert result.default_weights is None
-    assert result.selected_weights is None
+    assert [share.percent for share in result.selected_weights.normalized_weights] == [
+        100,
+        0,
+        0,
+        0,
+    ]
+    assert result.sensitivity == "weight_sensitive"
+    assert result.ranking.tradeoffs[0].higher_ranked_candidate_id == "water-winner"
+    assert result.ranking.tradeoffs[0].concessions
+    assert "concessions" in result.ranking.tradeoffs[0].explanation
+    assert any("Priority trade-off" in text for text in result.options[0].trade_offs)
 
 
-def test_soil_health_breaks_only_a_comparable_water_tie() -> None:
+def test_equal_weights_use_soil_rating_when_other_criteria_match() -> None:
     result = score_rotation_options(
         ScoringRequest(
             options=(
@@ -190,19 +229,25 @@ def test_soil_health_breaks_only_a_comparable_water_tie() -> None:
     assert result.ranking.rank_groups == (("soil-high",), ("soil-low",))
 
 
-def test_missing_soil_evidence_preserves_water_tie_instead_of_imputing() -> None:
+def test_missing_one_criterion_withholds_ranking_without_redistributing_weight() -> None:
     result = score_rotation_options(
         ScoringRequest(
             options=(
                 make_option("option-b", ("maize", "cowpea", "yam"), "high", soil_rating="high"),
-                make_option("option-a", ("cowpea", "yam", "groundnut"), "high"),
+                make_option(
+                    "option-a",
+                    ("cowpea", "yam", "groundnut"),
+                    "high",
+                    soil_rating=None,
+                ),
             )
         )
     )
 
-    assert [item.candidate.candidate_id for item in result.options] == ["option-a", "option-b"]
-    assert result.ranking.rank_groups == (("option-a", "option-b"),)
-    assert any("provisional" in reason for reason in result.ranking.reasons)
+    assert result.options == ()
+    assert result.ranking.status == "withheld"
+    assert any("soil_health_potential" in reason for reason in result.ranking.reasons)
+    assert any("no weight was redistributed" in reason for reason in result.ranking.reasons)
 
 
 def test_missing_water_evidence_stays_unranked_and_does_not_fill_top_three() -> None:
@@ -217,10 +262,10 @@ def test_missing_water_evidence_stays_unranked_and_does_not_fill_top_three() -> 
         )
     )
 
-    assert [item.candidate.candidate_id for item in result.options] == ["ranked"]
-    assert result.ranking.unranked_candidate_count == 1
-    assert result.ranking.status == "insufficient_options"
-    assert any("remain unranked" in reason for reason in result.ranking.reasons)
+    assert result.options == ()
+    assert result.ranking.unranked_candidate_count == 2
+    assert result.ranking.status == "withheld"
+    assert any("water_resilience" in reason for reason in result.ranking.reasons)
 
 
 def test_different_water_comparison_bases_withhold_ranking() -> None:
@@ -267,7 +312,7 @@ def test_returns_only_three_and_reports_tie_at_display_limit() -> None:
     assert result.ranking.rank_groups == (("option-a", "option-b", "option-c"),)
 
 
-def test_v2_result_model_rejects_more_than_three_alternatives() -> None:
+def test_v3_result_model_rejects_more_than_three_alternatives() -> None:
     options = tuple(
         make_option(
             f"option-{letter}",
@@ -324,11 +369,16 @@ def test_tied_display_uses_stable_candidate_id_without_breaking_the_tie() -> Non
 
 
 def test_repeated_crop_alternative_is_not_excluded_by_the_scorer() -> None:
-    repeated = make_option("all-maize", ("maize", "maize", "maize"), "low")
+    result = score_rotation_options(
+        ScoringRequest(
+            options=(
+                make_option("all-maize", ("maize", "maize", "maize"), "low"),
+                make_option("mixed-a", ("maize", "cowpea", "yam"), "moderate"),
+            )
+        )
+    )
 
-    result = score_rotation_options(ScoringRequest(options=(repeated,)))
-
-    assert [item.candidate.candidate_id for item in result.options] == ["all-maize"]
+    assert "all-maize" in {item.candidate.candidate_id for item in result.options}
     assert result.excluded_options == ()
 
 
@@ -372,7 +422,7 @@ def test_crop_evidence_is_provisional_and_rice_ecology_remains_unknown() -> None
         historical_indicators=(),
         environmental_context_ready=True,
     )
-    water, soil = evidence.criteria
+    water, soil, yield_stability, labor = evidence.criteria
 
     assert water.status == "assessed"
     assert water.rating == "moderate"  # the sequence rating is the weakest crop's class
@@ -381,6 +431,10 @@ def test_crop_evidence_is_provisional_and_rice_ecology_remains_unknown() -> None
     assert "bottleneck" in water.rationale
     assert soil.status == "not_assessed"
     assert "not assessed" in soil.rationale
+    assert yield_stability.status == "not_assessed"
+    assert yield_stability.evidence_references
+    assert labor.status == "not_assessed"
+    assert labor.evidence_references
     assert len(evidence.transition_assessments) == 3
     assert any(item.status == "needs_review" for item in evidence.transition_assessments)
 
@@ -393,29 +447,33 @@ def test_crop_evidence_is_provisional_and_rice_ecology_remains_unknown() -> None
     assert rice_evidence.criteria[0].status == "not_assessed"
 
 
-def test_synthetic_candidate_scoring_is_deterministic_and_labeled_provisional() -> None:
-    candidates = tuple(
-        make_candidate(f"public-{index}", crops)
-        for index, crops in enumerate(
+def test_synthetic_four_criterion_scoring_is_deterministic_and_labeled_provisional() -> None:
+    options = tuple(
+        make_option(
+            f"synthetic-{index}",
+            crops,
+            water,
+            soil_rating=soil,
+            yield_rating=yield_rating,
+            labor_rating=labor,
+        )
+        for index, (crops, water, soil, yield_rating, labor) in enumerate(
             (
-                ("groundnut", "cassava", "cowpea"),
-                ("cowpea", "groundnut", "cassava"),
-                ("cassava", "cowpea", "groundnut"),
-                ("groundnut", "cowpea", "cassava"),
-                ("cassava", "groundnut", "cowpea"),
+                (("groundnut", "cassava", "cowpea"), "high", "moderate", "low", "moderate"),
+                (("cowpea", "groundnut", "cassava"), "moderate", "high", "high", "low"),
+                (("cassava", "cowpea", "groundnut"), "moderate", "low", "moderate", "high"),
+                (("groundnut", "cowpea", "cassava"), "high", "low", "low", "low"),
+                (("cassava", "groundnut", "cowpea"), "low", "high", "high", "high"),
             ),
             start=1,
         )
     )
-    options = tuple(
-        build_crop_evidence_option(item, (), environmental_context_ready=True)
-        for item in candidates
-    )
-    first = score_rotation_options(ScoringRequest(options=options))
-    second = score_rotation_options(ScoringRequest(options=options))
+    request = ScoringRequest(options=options)
+    first = score_rotation_options(request)
+    second = score_rotation_options(request)
 
     assert first.model_dump() == second.model_dump()
     assert len(first.options) == 3
     assert first.provisional is True
-    assert first.scoring_version == "ny8-scoring-v2"
-    assert first.ranking.tie_at_limit is True
+    assert first.scoring_version == "ny8-scoring-v3"
+    assert first.default_weights.normalized_weights == first.selected_weights.normalized_weights

@@ -1,13 +1,13 @@
-"""NY-8 provisional water-first ranking and optional soil tie-breaking.
+"""NY-8 evidence-gated weighted ranking across four farmer criteria.
 
-New results use a lexicographic order: water resilience is primary and
-soil-health potential can break a tie only when its evidence is comparable.
-Historical NY-8 result fields remain parseable for existing Mongo documents.
+New results use equal default weights or the farmer's saved priority points.
+Historical NY-8 result versions remain parseable for existing Mongo documents.
 """
 
 from __future__ import annotations
 
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
+from fractions import Fraction
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -18,16 +18,16 @@ from app.decisions.rotation import (
 )
 from app.indicators.environmental import EnvironmentalIndicator
 
-SCORING_VERSION = "ny8-scoring-v2"
+SCORING_VERSION = "ny8-scoring-v3"
+WEIGHT_PERCENT_QUANTUM = Decimal("0.0001")
 
 Criterion = Literal[
     "water_resilience",
     "soil_health_potential",
-    # Legacy values are retained solely to deserialize previously stored NY-20 results.
     "yield_stability_proxy",
     "labor_feasibility",
 ]
-ActiveCriterion = Literal["water_resilience", "soil_health_potential"]
+ActiveCriterion = Criterion
 CriterionRating = Literal["high", "moderate", "low"]
 Confidence = Literal["high", "moderate", "low"]
 EvidenceStatus = Literal["assessed", "not_assessed"]
@@ -41,15 +41,18 @@ CalendarEvidenceStatus = Literal["unknown", "provisional", "locally_validated"]
 CRITERIA: tuple[ActiveCriterion, ...] = (
     "water_resilience",
     "soil_health_potential",
+    "yield_stability_proxy",
+    "labor_feasibility",
 )
 
 TOP_RECOMMENDATION_LIMIT = 3
-RANKING_METHOD = "lexicographic_water_then_optional_soil"
+RATING_ORDER: dict[CriterionRating, int] = {"high": 3, "moderate": 2, "low": 1}
+RANKING_METHOD = "weighted_ordinal_sum_v1"
 LEGACY_RANKING_METHOD = "legacy_weighted_v1"
 
 
 class PriorityPoints(BaseModel):
-    """Legacy farmer priority values retained for reading old persisted records."""
+    """Farmer-entered relative importance points for the four active criteria."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -197,7 +200,7 @@ class RotationOptionEvidence(BaseModel):
 
 
 class ScoringRequest(BaseModel):
-    """Options to compare; legacy farmer points are retained but ignored in v2."""
+    """Options to compare using equal defaults or the saved farmer priorities."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -215,7 +218,7 @@ class ScoringRequest(BaseModel):
 
 
 class WeightShare(BaseModel):
-    """Legacy normalized percentage retained for old result documents."""
+    """One criterion's normalized percentage weight for an auditable comparison."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -224,13 +227,36 @@ class WeightShare(BaseModel):
 
 
 class WeightProfile(BaseModel):
-    """Legacy audit record retained so historical scoring results deserialize."""
+    """Priority points and normalized weights used in one ranking view."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     source: WeightSource
     points: PriorityPoints
     normalized_weights: tuple[WeightShare, ...]
+
+
+class WeightedCriterionDifference(BaseModel):
+    """One criterion where two ranked options differ, with its selected weight."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    criterion: Criterion
+    higher_ranked_rating: CriterionRating
+    lower_ranked_rating: CriterionRating
+    selected_weight_percent: Decimal = Field(ge=0, le=100)
+
+
+class RankingTradeoff(BaseModel):
+    """Explain what the higher-ranked option gains and gives up against another."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    higher_ranked_candidate_id: str
+    lower_ranked_candidate_id: str
+    strengths: tuple[WeightedCriterionDifference, ...]
+    concessions: tuple[WeightedCriterionDifference, ...]
+    explanation: str = Field(min_length=1)
 
 
 class CriterionResult(BaseModel):
@@ -240,8 +266,8 @@ class CriterionResult(BaseModel):
 
     criterion: Criterion = Field(
         description=(
-            "NY-8 v2 emits only water_resilience and soil_health_potential. "
-            "Older persisted scoring-v1 results may also contain yield/labour criteria."
+            "NY-8 v3 emits all four approved criteria. Older persisted scoring-v1/v2 "
+            "records retain their historical criterion sets."
         )
     )
     status: EvidenceStatus
@@ -283,7 +309,7 @@ class ExcludedOption(BaseModel):
 
 
 class RankingOutcome(BaseModel):
-    """Provisional water-first top-three ordering with ties and unranked count."""
+    """Weighted, tie-aware ranking and explicit evidence/trade-off rationale."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -295,10 +321,11 @@ class RankingOutcome(BaseModel):
     ranked_candidate_count: int = 0
     unranked_candidate_count: int = 0
     tie_at_limit: bool = False
+    tradeoffs: tuple[RankingTradeoff, ...] = ()
 
 
 class ScoringResult(BaseModel):
-    """Three returned alternatives, a separate baseline, and ranking provenance."""
+    """Three priority-ranked alternatives, separate baseline, and audit provenance."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -315,7 +342,7 @@ class ScoringResult(BaseModel):
     baseline_option: ScoredOption | None = None
     excluded_options: tuple[ExcludedOption, ...]
     ranking: RankingOutcome | None = None
-    # Optional legacy fields preserve deserialization of NY-8 scoring-v1 records.
+    # Keep both comparison views so the farmer can see whether priorities change order.
     equal_weight_ranking: RankingOutcome | None = None
     selected_weight_ranking: RankingOutcome | None = None
     sensitivity: SensitivityStatus | None = None
@@ -323,7 +350,7 @@ class ScoringResult(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def add_legacy_result_metadata(cls, value: object) -> object:
-        """Keep v1 scores labeled as weighted results when old Mongo docs load."""
+        """Keep historical weighted and water-first results readable after revision."""
 
         if not isinstance(value, dict):
             return value
@@ -331,40 +358,83 @@ class ScoringResult(BaseModel):
         if payload.get("scoring_version") == "ny8-scoring-v1":
             payload.setdefault("ranking_method", LEGACY_RANKING_METHOD)
             payload.setdefault("candidate_count", len(payload.get("options", ())))
+        elif payload.get("scoring_version") == "ny8-scoring-v2":
+            payload.setdefault("ranking_method", "lexicographic_water_then_optional_soil")
         return payload
 
     @model_validator(mode="after")
-    def validate_v2_output_contract(self) -> ScoringResult:
-        """Protect the new top-three/two-criterion contract, while reading v1 docs."""
+    def validate_v3_output_contract(self) -> ScoringResult:
+        """Protect the four-criterion weighted response while reading older records."""
 
         if self.scoring_version != SCORING_VERSION:
             return self
         if len(self.options) > TOP_RECOMMENDATION_LIMIT:
-            raise ValueError("NY-8 v2 can return at most three alternatives")
+            raise ValueError("NY-8 v3 can return at most three alternatives")
         if self.ranking is None:
-            raise ValueError("NY-8 v2 requires ranking status and rationale")
+            raise ValueError("NY-8 v3 requires ranking status and rationale")
         if self.ranking_method != RANKING_METHOD:
-            raise ValueError("NY-8 v2 requires the fixed water-first ranking method")
-        if any(
-            result.criterion not in CRITERIA
-            for option in self.options
-            for result in option.criteria
-        ):
-            raise ValueError("NY-8 v2 results can expose only water and soil criteria")
-        if self.default_weights is not None or self.selected_weights is not None:
-            raise ValueError("NY-8 v2 uses fixed criterion precedence, not weighted profiles")
+            raise ValueError("NY-8 v3 requires weighted ordinal ranking")
+        if self.default_weights is None or self.selected_weights is None:
+            raise ValueError("NY-8 v3 requires default and selected weight profiles")
+        for option in (*self.options, *((self.baseline_option,) if self.baseline_option else ())):
+            if tuple(result.criterion for result in option.criteria) != CRITERIA:
+                raise ValueError("NY-8 v3 options must expose all four criteria in order")
         return self
 
 
-def _build_provisional_option(
+def _equal_priority_points() -> PriorityPoints:
+    """Create the fallback weight profile when a farmer has no saved priorities."""
+
+    return PriorityPoints(
+        water_resilience=25,
+        soil_health_potential=25,
+        yield_stability_proxy=25,
+        labor_feasibility=25,
+    )
+
+
+def _weight_profile(points: PriorityPoints, source: WeightSource) -> WeightProfile:
+    """Normalize preference points into visible percentages that sum to 100."""
+
+    values = points.model_dump()
+    total = sum(values.values())
+    normalized = {
+        criterion: (Decimal(values[criterion]) * 100 / total).quantize(
+            WEIGHT_PERCENT_QUANTUM,
+            rounding=ROUND_HALF_UP,
+        )
+        for criterion in CRITERIA
+    }
+    correction = Decimal("100") - sum(normalized.values(), Decimal("0"))
+    correction_target = next(criterion for criterion in reversed(CRITERIA) if values[criterion] > 0)
+    normalized[correction_target] += correction
+    return WeightProfile(
+        source=source,
+        points=points,
+        normalized_weights=tuple(
+            WeightShare(criterion=criterion, percent=normalized[criterion])
+            for criterion in CRITERIA
+        ),
+    )
+
+
+def _build_scored_option(
     option: RotationOptionEvidence,
     *,
+    default_profile: WeightProfile,
+    selected_profile: WeightProfile,
     needs_review_constraints: tuple[HardConstraintFinding, ...],
 ) -> ScoredOption:
-    """Return only the current water and optional soil assessments."""
+    """Attach both disclosed weight profiles and preserve each criterion's missingness."""
 
     evidence_by_criterion = {item.criterion: item for item in option.criteria}
-    results: list[CriterionResult] = []
+    default_by_criterion = {
+        item.criterion: item.percent for item in default_profile.normalized_weights
+    }
+    selected_by_criterion = {
+        item.criterion: item.percent for item in selected_profile.normalized_weights
+    }
+    criteria_list: list[CriterionResult] = []
     for criterion in CRITERIA:
         evidence = evidence_by_criterion.get(criterion)
         if evidence is None:
@@ -373,18 +443,34 @@ def _build_provisional_option(
                 status="not_assessed",
                 rationale="No comparable evidence was supplied for this criterion.",
             )
-        results.append(
+        criteria_list.append(
             CriterionResult(
                 criterion=criterion,
                 status=evidence.status,
                 rating=evidence.rating,
                 confidence=evidence.confidence,
+                equal_weight_percent=default_by_criterion[criterion],
+                selected_weight_percent=selected_by_criterion[criterion],
                 rationale=evidence.rationale,
                 comparison_basis=evidence.comparison_basis,
                 evidence_references=evidence.evidence_references,
                 environmental_inputs=evidence.environmental_inputs,
                 assumptions=evidence.assumptions,
             )
+        )
+    criteria = tuple(criteria_list)
+    weights = {item.criterion: item.percent for item in selected_profile.normalized_weights}
+    rated_high = [item for item in criteria if item.status == "assessed" and item.rating == "high"]
+    rated_low = [item for item in criteria if item.status == "assessed" and item.rating == "low"]
+    trade_offs = list(option.trade_offs)
+    if rated_high and rated_low:
+        strength = max(rated_high, key=lambda item: weights[item.criterion])
+        weakness = max(rated_low, key=lambda item: weights[item.criterion])
+        trade_offs.append(
+            f"Priority trade-off: this sequence is High on {strength.criterion} "
+            f"({weights[strength.criterion]}% weight) and Low on {weakness.criterion} "
+            f"({weights[weakness.criterion]}% weight). The selected weights determine "
+            "how much that difference affects its position."
         )
 
     warnings = tuple(
@@ -397,93 +483,33 @@ def _build_provisional_option(
     )
     return ScoredOption(
         candidate=option.candidate,
-        criteria=tuple(results),
+        criteria=criteria,
         hard_constraints=option.hard_constraints,
         event_assessments=option.event_assessments,
         transition_assessments=option.transition_assessments,
         candidate_rule_findings=option.candidate.rule_findings,
         benefits=option.benefits,
-        trade_offs=option.trade_offs,
+        trade_offs=tuple(trade_offs),
         assumptions=option.assumptions,
         warnings=warnings,
     )
 
 
-def _criterion(option: ScoredOption, criterion: ActiveCriterion) -> CriterionResult:
-    """Find one active criterion already normalized into the output option."""
+def _criterion(option: ScoredOption, criterion: Criterion) -> CriterionResult:
+    """Find one of the four criterion records in its normalized output."""
 
     return next(item for item in option.criteria if item.criterion == criterion)
-
-
-def _rank_provisionally(
-    options: list[ScoredOption],
-) -> tuple[tuple[tuple[str, ...], ...], dict[str, ScoredOption], int, str | None]:
-    """Rank comparable water groups and use soil only for complete tied groups."""
-
-    assessed = [
-        option
-        for option in options
-        if _criterion(option, "water_resilience").status == "assessed"
-        and _criterion(option, "water_resilience").rating is not None
-    ]
-    bases = {_criterion(option, "water_resilience").comparison_basis for option in assessed}
-    if len(bases) > 1 or (assessed and None in bases):
-        return (
-            (),
-            {},
-            len(options),
-            "Primary water evidence uses different or missing comparison bases; "
-            "ranking is withheld.",
-        )
-    if not assessed:
-        return (), {}, len(options), None
-
-    groups: list[tuple[str, ...]] = []
-    for water_rating in ("high", "moderate", "low"):
-        water_group = [
-            option
-            for option in assessed
-            if _criterion(option, "water_resilience").rating == water_rating
-        ]
-        if not water_group:
-            continue
-
-        soil_evidence = [_criterion(option, "soil_health_potential") for option in water_group]
-        soil_is_comparable = (
-            all(item.status == "assessed" and item.rating is not None for item in soil_evidence)
-            and len({item.comparison_basis for item in soil_evidence}) == 1
-            and soil_evidence[0].comparison_basis is not None
-        )
-        if soil_is_comparable:
-            for soil_rating in ("high", "moderate", "low"):
-                tied = [
-                    option
-                    for option in water_group
-                    if _criterion(option, "soil_health_potential").rating == soil_rating
-                ]
-                if tied:
-                    groups.append(tuple(sorted(item.candidate.candidate_id for item in tied)))
-        else:
-            groups.append(tuple(sorted(item.candidate.candidate_id for item in water_group)))
-
-    by_id = {option.candidate.candidate_id: option for option in assessed}
-    return tuple(groups), by_id, len(options) - len(assessed), None
 
 
 def _top_three(
     groups: tuple[tuple[str, ...], ...],
     options_by_id: dict[str, ScoredOption],
 ) -> tuple[list[ScoredOption], tuple[tuple[str, ...], ...], bool]:
-    """Return at most three options, marking when the cutoff splits a tie.
-
-    Candidate ID supplies stable display order within a tie. It is not a score
-    or agronomic preference; a tie cut by the limit remains explicitly marked.
-    """
+    """Return at most three candidates, preserving ties and stable display order."""
 
     selected_ids: list[str] = []
     selected_groups: list[tuple[str, ...]] = []
     tie_at_limit = False
-
     for original_group in groups:
         group = tuple(sorted(original_group))
         remaining = TOP_RECOMMENDATION_LIMIT - len(selected_ids)
@@ -498,14 +524,203 @@ def _top_three(
     return [options_by_id[item] for item in selected_ids], tuple(selected_groups), tie_at_limit
 
 
-def score_rotation_options(request: ScoringRequest) -> ScoringResult:
-    """Apply constraints, water-first ranking, optional soil ties, and a top-three cap.
+def _build_tradeoff_explanations(
+    selected: list[ScoredOption],
+    values_by_id: dict[str, Fraction],
+    weight_by_criterion: dict[Criterion, Decimal],
+) -> tuple[RankingTradeoff, ...]:
+    """Explain criterion gains and concessions between adjacent displayed ranks."""
 
-    Farmer priority points are retained on the request for historical-record
-    compatibility, but cannot override the Product Owner's fixed water-first
-    policy. Missing water evidence stays unranked. Missing soil evidence never
-    blocks a water comparison and is never imputed.
-    """
+    explanations: list[RankingTradeoff] = []
+    for higher, lower in zip(selected, selected[1:], strict=False):
+        higher_id = higher.candidate.candidate_id
+        lower_id = lower.candidate.candidate_id
+        if values_by_id[higher_id] == values_by_id[lower_id]:
+            continue
+
+        strengths: list[WeightedCriterionDifference] = []
+        concessions: list[WeightedCriterionDifference] = []
+        for criterion in CRITERIA:
+            higher_result = _criterion(higher, criterion)
+            lower_result = _criterion(lower, criterion)
+            higher_rating = higher_result.rating
+            lower_rating = lower_result.rating
+            if higher_rating is None or lower_rating is None or higher_rating == lower_rating:
+                continue
+            difference = WeightedCriterionDifference(
+                criterion=criterion,
+                higher_ranked_rating=higher_rating,
+                lower_ranked_rating=lower_rating,
+                selected_weight_percent=weight_by_criterion[criterion],
+            )
+            target = (
+                strengths
+                if RATING_ORDER[higher_rating] > RATING_ORDER[lower_rating]
+                else concessions
+            )
+            target.append(difference)
+
+        strength_text = (
+            "; ".join(
+                f"{item.criterion} is {item.higher_ranked_rating} vs "
+                f"{item.lower_ranked_rating} ({item.selected_weight_percent}% weight)"
+                for item in strengths
+            )
+            or "no criterion rating advantage"
+        )
+        concession_text = (
+            "; ".join(
+                f"{item.criterion} is {item.higher_ranked_rating} vs "
+                f"{item.lower_ranked_rating} ({item.selected_weight_percent}% weight)"
+                for item in concessions
+            )
+            or "no lower criterion rating"
+        )
+        explanations.append(
+            RankingTradeoff(
+                higher_ranked_candidate_id=higher_id,
+                lower_ranked_candidate_id=lower_id,
+                strengths=tuple(strengths),
+                concessions=tuple(concessions),
+                explanation=(
+                    f"{higher_id} ranks ahead of {lower_id} under the selected priorities: "
+                    f"strengths are {strength_text}; concessions are {concession_text}. "
+                    "The weighted ordinal model lets gains on higher-priority criteria "
+                    "offset weaker ratings on other criteria."
+                ),
+            )
+        )
+    return tuple(explanations)
+
+
+def _rank_options(
+    options: list[ScoredOption],
+    *,
+    points: PriorityPoints,
+    profile: WeightProfile,
+    view_name: str,
+) -> tuple[RankingOutcome, list[ScoredOption], tuple[tuple[str, ...], ...]]:
+    """Rank only when every compared option has all four comparable assessments."""
+
+    if len(options) < 2:
+        return (
+            RankingOutcome(
+                status="insufficient_options",
+                method=RANKING_METHOD,
+                reasons=("At least two non-excluded alternatives are required for comparison.",),
+                unranked_candidate_count=len(options),
+            ),
+            [],
+            (),
+        )
+
+    blockers: list[str] = []
+    for criterion in CRITERIA:
+        missing = [
+            option.candidate.candidate_id
+            for option in options
+            if _criterion(option, criterion).status != "assessed"
+            or _criterion(option, criterion).rating is None
+        ]
+        if missing:
+            sample = ", ".join(missing[:5])
+            suffix = "…" if len(missing) > 5 else ""
+            blockers.append(
+                f"{criterion} is not assessed for {len(missing)} alternative(s) "
+                f"({sample}{suffix}); no weight was redistributed."
+            )
+            continue
+
+        bases = {_criterion(option, criterion).comparison_basis for option in options}
+        if len(bases) != 1 or None in bases:
+            blockers.append(f"{criterion} ratings use different or missing comparison bases.")
+
+    if blockers:
+        return (
+            RankingOutcome(
+                status="withheld",
+                method=RANKING_METHOD,
+                reasons=tuple(blockers)
+                + ("All four criteria must be assessed on comparable bases before ranking.",),
+                unranked_candidate_count=len(options),
+            ),
+            [],
+            (),
+        )
+
+    normalized_points = points.model_dump()
+    total_points = sum(normalized_points.values())
+    values_by_id: dict[str, Fraction] = {}
+    options_by_id = {option.candidate.candidate_id: option for option in options}
+    for option in options:
+        value = sum(
+            (
+                Fraction(normalized_points[criterion], total_points)
+                * RATING_ORDER[_criterion(option, criterion).rating]  # type: ignore[index]
+                for criterion in CRITERIA
+            ),
+            Fraction(0),
+        )
+        values_by_id[option.candidate.candidate_id] = value
+
+    ordered = sorted(values_by_id.items(), key=lambda item: (-item[1], item[0]))
+    full_groups: list[list[str]] = []
+    previous_value: Fraction | None = None
+    for candidate_id, value in ordered:
+        if value != previous_value:
+            full_groups.append([])
+            previous_value = value
+        full_groups[-1].append(candidate_id)
+
+    all_groups = tuple(tuple(group) for group in full_groups)
+    selected, selected_groups, tie_at_limit = _top_three(all_groups, options_by_id)
+    weights = {item.criterion: item.percent for item in profile.normalized_weights}
+    tradeoffs = _build_tradeoff_explanations(selected, values_by_id, weights)
+    priorities_text = ", ".join(
+        f"{item.criterion} {item.percent}%" for item in profile.normalized_weights
+    )
+    reasons = [
+        f"This is the {view_name} weighted comparison; normalized priorities "
+        f"are {priorities_text}.",
+        "High/Moderate/Low are mapped to 3/2/1. This ordinal model assumes equal spacing "
+        "between categories and is a comparison aid, not a probability or measured outcome.",
+        "The ranking is compensatory: stronger ratings on weighted criteria can offset "
+        "weaker ratings elsewhere. Explicit hard constraints are applied before scoring "
+        "and cannot be overridden by priorities.",
+        "Evidence and crop rules remain provisional until local validation; review warnings "
+        "are retained with each option.",
+    ]
+    if any(len(group) > 1 for group in all_groups):
+        reasons.append(
+            "Equal weighted totals remain tied; candidate ID determines display order only."
+        )
+    if tie_at_limit:
+        reasons.append(
+            "The three-option limit cuts through a tied rank group; other equally ranked "
+            "options are omitted from the displayed shortlist."
+        )
+    outcome = RankingOutcome(
+        status="ranked",
+        rank_groups=selected_groups,
+        reasons=tuple(reasons),
+        method=RANKING_METHOD,
+        ranked_candidate_count=len(options),
+        tie_at_limit=tie_at_limit,
+        tradeoffs=tradeoffs,
+    )
+    return outcome, selected, all_groups
+
+
+def score_rotation_options(request: ScoringRequest) -> ScoringResult:
+    """Apply hard constraints, four weighted criteria, and a top-three cap."""
+
+    default_points = _equal_priority_points()
+    selected_points = request.farmer_priorities or default_points
+    default_profile = _weight_profile(default_points, "default_equal")
+    selected_profile = _weight_profile(
+        selected_points,
+        "farmer_selected" if request.farmer_priorities is not None else "default_equal",
+    )
 
     scored: list[ScoredOption] = []
     excluded: list[ExcludedOption] = []
@@ -520,72 +735,58 @@ def score_rotation_options(request: ScoringRequest) -> ScoringResult:
         needs_review = tuple(
             finding for finding in option.hard_constraints if finding.outcome == "needs_review"
         )
-        scored.append(_build_provisional_option(option, needs_review_constraints=needs_review))
+        scored.append(
+            _build_scored_option(
+                option,
+                default_profile=default_profile,
+                selected_profile=selected_profile,
+                needs_review_constraints=needs_review,
+            )
+        )
 
     baseline = next((option for option in scored if option.candidate.kind == "baseline"), None)
     alternatives = [option for option in scored if option.candidate.kind != "baseline"]
-    rank_groups, rankable_by_id, unranked_count, comparability_issue = _rank_provisionally(
-        alternatives
+    equal_ranking, _equal_top, equal_full_groups = _rank_options(
+        alternatives,
+        points=default_points,
+        profile=default_profile,
+        view_name="equal-weight default",
     )
-    selected, selected_groups, tie_at_limit = _top_three(rank_groups, rankable_by_id)
+    selected_ranking, selected, selected_full_groups = _rank_options(
+        alternatives,
+        points=selected_points,
+        profile=selected_profile,
+        view_name="farmer-selected" if request.farmer_priorities is not None else "default",
+    )
 
-    reasons = [
-        "This ranking is provisional and based on crop-level public evidence; "
-        "it is not local agronomic validation.",
-        "The water rating uses the least-resilient crop in the three-season "
-        "sequence as a conservative bottleneck.",
-        "Historical NASA indicators are context only; they are not a future-weather "
-        "forecast or a crop water-balance calculation.",
-    ]
-    if comparability_issue:
-        reasons.append(comparability_issue)
-    if unranked_count and comparability_issue is None:
-        reasons.append(
-            f"{unranked_count} alternative(s) lack comparable primary water "
-            "evidence and remain unranked."
-        )
-    if any(len(group) > 1 for group in rank_groups):
-        reasons.append(
-            "Options within a tied group use candidate ID for stable display order; "
-            "this is not an agronomic preference."
-        )
-    if tie_at_limit:
-        reasons.append(
-            "The three-item display limit splits a tied rank group; other equally "
-            "ranked options are omitted from the short list."
-        )
-    if len(alternatives) < TOP_RECOMMENDATION_LIMIT:
-        reasons.append(
-            f"Only {len(alternatives)} valid alternative(s) were available; "
-            "fewer than three can be returned."
-        )
-    elif selected and len(selected) < TOP_RECOMMENDATION_LIMIT:
-        reasons.append(
-            "Fewer than three alternatives had comparable water evidence; the "
-            "result does not fill the limit with unranked options."
-        )
-
-    status: RankingStatus
-    if not selected:
-        status = "withheld"
-    elif len(alternatives) < TOP_RECOMMENDATION_LIMIT:
-        status = "insufficient_options"
+    if request.farmer_priorities is None:
+        sensitivity: SensitivityStatus = "not_applicable"
+    elif equal_ranking.status != "ranked" or selected_ranking.status != "ranked":
+        sensitivity = "unavailable"
+    elif equal_full_groups == selected_full_groups:
+        sensitivity = "stable"
     else:
-        status = "ranked"
-    ranking = RankingOutcome(
-        status=status,
-        rank_groups=selected_groups,
-        reasons=tuple(reasons),
-        method=RANKING_METHOD,
-        ranked_candidate_count=len(rankable_by_id),
-        unranked_candidate_count=unranked_count,
-        tie_at_limit=tie_at_limit,
-    )
+        sensitivity = "weight_sensitive"
+
+    selected_reasons = list(selected_ranking.reasons)
+    if sensitivity == "weight_sensitive":
+        selected_reasons.append(
+            "Farmer-selected priorities change the ranking relative to equal weights; "
+            "the two rank-groupings are returned for comparison."
+        )
+        selected_ranking = selected_ranking.model_copy(update={"reasons": tuple(selected_reasons)})
+
     return ScoringResult(
+        scoring_version=SCORING_VERSION,
         candidate_count=len(request.options),
         ranking_method=RANKING_METHOD,
+        default_weights=default_profile,
+        selected_weights=selected_profile,
         options=tuple(selected),
         baseline_option=baseline,
         excluded_options=tuple(excluded),
-        ranking=ranking,
+        ranking=selected_ranking,
+        equal_weight_ranking=equal_ranking,
+        selected_weight_ranking=selected_ranking,
+        sensitivity=sensitivity,
     )

@@ -54,9 +54,7 @@ class FarmDecisionInputSnapshot(BaseModel):
                 tuple(farm.previous_crops) if farm.previous_crops is not None else None
             ),
             current_practice=farm.current_practice,
-            # NY-8 v2 uses fixed water-first ordering. The optional field remains
-            # only so older result documents with priority snapshots still load.
-            farmer_priorities=None,
+            farmer_priorities=farm.farmer_priorities,
             farm_updated_at=farm.updated_at,
         )
 

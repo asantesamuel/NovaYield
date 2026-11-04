@@ -29,8 +29,7 @@ class Farm(Document):
     irrigation_access: FarmText | None = None
     previous_crops: list[FarmText] | None = None
     current_practice: FarmText | None = None
-    # Legacy persisted field: accepted when reading old farm documents, but
-    # omitted from new farm API contracts and ignored by NY-8 v2.
+    # Farmer-entered relative priority points used by the NY-8 four-criterion ranking.
     farmer_priorities: PriorityPoints | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

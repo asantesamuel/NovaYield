@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
+from app.decisions.scoring import PriorityPoints
 from app.farms.contracts import CropName, FarmName, FarmText, LocationKey
 
 if TYPE_CHECKING:
@@ -25,6 +26,7 @@ class FarmCreate(BaseModel):
     irrigation_access: FarmText | None = None
     previous_crops: list[CropName] | None = None
     current_practice: FarmText | None = None
+    farmer_priorities: PriorityPoints | None = None
 
 
 class FarmUpdate(BaseModel):
@@ -38,6 +40,7 @@ class FarmUpdate(BaseModel):
     irrigation_access: FarmText | None = None
     previous_crops: list[CropName] | None = None
     current_practice: FarmText | None = None
+    farmer_priorities: PriorityPoints | None = None
 
     @model_validator(mode="after")
     def require_mutable_fields(self) -> FarmUpdate:
@@ -94,6 +97,7 @@ class FarmResponse(BaseModel):
     irrigation_access: FarmText | None = None
     previous_crops: list[CropName] | None = None
     current_practice: FarmText | None = None
+    farmer_priorities: PriorityPoints | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -112,6 +116,7 @@ class FarmResponse(BaseModel):
             irrigation_access=farm.irrigation_access,
             previous_crops=farm.previous_crops,
             current_practice=farm.current_practice,
+            farmer_priorities=farm.farmer_priorities,
             created_at=farm.created_at,
             updated_at=farm.updated_at,
         )

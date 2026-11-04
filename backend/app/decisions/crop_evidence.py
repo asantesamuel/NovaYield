@@ -22,8 +22,27 @@ from app.decisions.scoring import (
 )
 from app.indicators.environmental import EnvironmentalIndicator
 
-ASSESSMENT_VERSION = "ny8-sequence-assessment-v1"
+ASSESSMENT_VERSION = "ny8-sequence-assessment-v2"
 WaterRating = Literal["high", "moderate", "low"]
+
+YIELD_STABILITY_SOURCES = {
+    "maize": (
+        "https://onlinelibrary.wiley.com/doi/full/10.1155/2022/9077383",
+        "https://www.mdpi.com/2071-1050/14/6/3514",
+    ),
+    "cowpea": ("https://pmc.ncbi.nlm.nih.gov/articles/PMC11759354/",),
+    "groundnut": ("https://cspace.csirgh.com/items/show/139",),
+    "cassava": ("https://onlinelibrary.wiley.com/doi/full/10.1155/2022/9077383",),
+    "yam": (
+        "https://onlinelibrary.wiley.com/doi/full/10.1155/2022/9077383",
+        "https://pmc.ncbi.nlm.nih.gov/articles/PMC10008982/",
+    ),
+    "rice": ("https://eprints.whiterose.ac.uk/id/eprint/189376/",),
+}
+LABOUR_FEASIBILITY_SOURCES = (
+    "https://hdl.handle.net/10568/154236",
+    "https://biblio.iita.org/documents/U17ArtKermahMaizegrainInthomDev.pdf-445c35e8e1f6327f3454293ca87e73c6.pdf",
+)
 
 
 class FarmAssessmentContext(BaseModel):
@@ -66,6 +85,8 @@ def build_crop_evidence_option(
         prior_crop_history=prior_crop_history,
     )
     soil = _not_assessed_soil(context, transitions)
+    yield_stability = _not_assessed_yield_stability(candidate, historical_indicators)
+    labor_feasibility = _not_assessed_labor(candidate, historical_indicators, context)
 
     water_is_assessed = water.status == "assessed"
     bottleneck = water.rating
@@ -97,7 +118,7 @@ def build_crop_evidence_option(
         candidate=candidate,
         event_assessments=event_assessments,
         transition_assessments=transitions,
-        criteria=(water, soil),
+        criteria=(water, soil, yield_stability, labor_feasibility),
         benefits=benefits,
         trade_offs=(
             "Relative water resilience does not establish crop water requirement, "
@@ -412,5 +433,84 @@ def _not_assessed_soil(
         criterion="soil_health_potential",
         status="not_assessed",
         rationale=reason,
+        evidence_references=tuple(
+            dict.fromkeys(
+                reference
+                for transition in transitions
+                for reference in transition.evidence_references
+            )
+        ),
+        assumptions=tuple(assumptions),
+    )
+
+
+def _not_assessed_yield_stability(
+    candidate: RotationCandidate,
+    indicators: tuple[EnvironmentalIndicator, ...],
+) -> CriterionEvidence:
+    """Retain crop-specific study references without inventing a stability rating."""
+
+    references = tuple(
+        dict.fromkeys(
+            reference
+            for event in candidate.events
+            for reference in YIELD_STABILITY_SOURCES.get(event.crop.crop_id, ())
+        )
+    )
+    return CriterionEvidence(
+        criterion="yield_stability_proxy",
+        status="not_assessed",
+        rationale=(
+            "The available studies are crop-, variety-, site-, or year-specific and do not "
+            "establish a comparable yield-stability rating for this three-event sequence. "
+            "No yield estimate or crop-failure probability is inferred."
+        ),
+        evidence_references=references,
+        environmental_inputs=indicators,
+        assumptions=(
+            "Historical NASA indicators describe past periods and are not a future yield forecast.",
+            "Variety-specific and sequence-level stability evidence is still required.",
+        ),
+    )
+
+
+def _not_assessed_labor(
+    candidate: RotationCandidate,
+    indicators: tuple[EnvironmentalIndicator, ...],
+    farm_context: FarmAssessmentContext,
+) -> CriterionEvidence:
+    """Record labor research while requiring actual farm capacity inputs for feasibility."""
+
+    crop_references = {
+        reference
+        for event in candidate.events
+        for reference in LABOUR_FEASIBILITY_SOURCES
+        if event.crop.crop_id != "rice"
+    }
+    if any(event.crop.crop_id == "rice" for event in candidate.events):
+        crop_references.add(
+            "https://www.jica.go.jp/english/our_work/thematic_issues/agricultural/pdf/ghana_en.pdf"
+        )
+    assumptions = [
+        "Published operation-day estimates vary by crop system and management; "
+        "they are not this farm's labor capacity.",
+        "Labor feasibility requires operation timing, available household/hired "
+        "labor, plot area, and machinery or service access.",
+    ]
+    if farm_context.residue_management is None:
+        assumptions.append(
+            "Crop residue and land-preparation practices are not available as labor inputs."
+        )
+    return CriterionEvidence(
+        criterion="labor_feasibility",
+        status="not_assessed",
+        rationale=(
+            "Published Ghana labor estimates are operation- and system-specific; the farm profile "
+            "does not capture labor availability, plot area, machinery access, "
+            "or operation timing. "
+            "A farm-specific feasibility rating would be unsupported."
+        ),
+        evidence_references=tuple(sorted(crop_references)),
+        environmental_inputs=indicators,
         assumptions=tuple(assumptions),
     )

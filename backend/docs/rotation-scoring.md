@@ -2,131 +2,58 @@
 
 ## Product policy
 
-New `ny8-scoring-v2` results follow Product Owner Decision 11:
+New results use `ny8-scoring-v3` and all four PRD criteria:
 
-- Water resilience is the fixed primary criterion.
-- Soil-health potential can break a water tie only when every option in that tie
-  has comparable, evidence-backed soil evidence.
-- Yield stability and labour are not scored in this version.
-- Farmer priority points and weighted profiles are retained only to read legacy
-  records; they do not change new results.
-- Return at most three alternatives. Return a known current-practice baseline
-  separately.
+- Water resilience
+- Soil-health potential
+- Yield-stability proxy
+- Labour feasibility
 
-The original PRD and the earlier research handoff described four criteria and
-farmer-adjustable weights. Decision 11 narrowed the approved implementation.
-Restoring four weighted criteria or changing baseline-plus-three to
-baseline-plus-two requires an explicit Product Owner scope change.
+When no farmer priorities are saved, each criterion receives 25%. Otherwise, the four saved priority point values are normalized to percentages. Those weights can change the ranking, but cannot override a candidate that fails a documented hard constraint. The API returns both the equal-weight and selected-priority comparison views, indicates whether priorities change the displayed order, and explains criterion gains and concessions between adjacent options.
+
+A rank is produced only if every alternative in the comparison has assessed evidence for all four criteria using a comparable basis. Missing or incomparable evidence is not scored as zero, neutral, or redistributed across other weights: the overall rank is withheld and the available assessments remain visible. The ranking is provisional, not an agronomic validation. The response contains no more than three alternatives and keeps a known baseline separate.
 
 ## Request-to-result path
 
-The existing authenticated NY-9 route is the orchestration boundary:
+The authenticated NY-9 route is the orchestration boundary:
 
-1. Load the farm with the authenticated owner filter and resolve its supported
-   location.
-2. Retrieve cached/persisted NASA POWER snapshots for the farmer-reported past
-   season periods; calculate the three NY-13 indicators.
-3. Build three future planting-event slots separately from those historical
-   NASA periods.
+1. Load the farm with the authenticated owner filter and resolve its supported location.
+2. Retrieve cached/persisted NASA POWER snapshots for farmer-reported past periods and calculate the NY-13 indicators.
+3. Keep those historical analysis periods separate from future recommendation-season slots.
 4. Generate the six-crop Cartesian product and include a known baseline once.
 5. Assess every generated candidate through the pure crop-evidence module.
-6. Pass the evidence DTOs to the existing `score_rotation_options()` function.
-7. Persist the generated pool and selected result through NY-20, then map it to
-   `RotationResultResponse`.
+6. Pass the evidence DTOs and the farm's saved priorities to `score_rotation_options()`.
+7. Persist the generated pool and selected result through NY-20, then map it to `RotationResultResponse`.
 
-The scorer does not call NASA or MongoDB. Profile loading and assessment are
-pure functions in `app.decisions.crop_profiles` and
-`app.decisions.crop_evidence`. Route wiring stays in `app.api.workflows`.
+The scorer does not call NASA or MongoDB. Profile loading and assessment are pure functions in `app.decisions.crop_profiles` and `app.decisions.crop_evidence`; route wiring stays in `app.api.workflows`.
 
-## Evidence and criterion behavior
+## Current evidence status
 
-The crop library is versioned as `ny8-crop-library-v1`. A profile can hold
-identity, variety, production system, calendar, maturity, and individually
-provenanced traits. Only supported facts are populated. The five desk-researched
-water classes remain provisional; rice stays unassessed until the production
-system is known. See [Crop Library and Sequence Assessment](crop-library-and-assessment.md)
-and the [crop-by-criterion evidence matrix](../../analysis_docs/research/ny-8-crop-criterion-evidence-matrix.md).
+The crop library is versioned as `ny8-crop-library-v1`. The five desk-researched water classes remain provisional, and rice remains unassessed until its production system is known. Soil-health ratings require comparable sequence evidence and management context. Current sources do not establish comparable yield-stability ratings for the candidate three-event sequences. Published operation-day estimates do not establish labour feasibility for a farm without labour availability, area, timing, and machinery/service inputs. See [Crop Library and Sequence Assessment](crop-library-and-assessment.md) and the [crop-by-criterion evidence matrix](../../analysis_docs/research/ny-8-crop-criterion-evidence-matrix.md).
 
-For each of the three past farmer-reported NASA periods, at least two of the
-three approved indicators must have usable values. A usable indicator has a
-value and is not marked unavailable. Partial results remain partial with their
-coverage metadata; no new minimum coverage percentage is invented. If a period
-has fewer than two usable indicators, water is `not_assessed` and the ranking
-is withheld. The existing NY-13 policy permits two reliable indicators when
-one of three is unavailable.
+For each of the three farmer-reported NASA periods, at least two of the three approved indicators must have usable values. NASA history is provenance and historical context; it does not become future weather, a field-rainfall measurement, soil moisture, or a crop-water balance.
 
-When environmental context is available, a sequence uses its least
-water-resilient crop as the conservative sequence rating. A candidate with an
-unassessed crop, currently rice without its ecology, cannot enter the primary
-ranking. NASA history is retained in the output but does not adjust crop
-classes: these past values are not future weather, crop-stage data, a soil
-moisture measurement, or a crop-water balance.
+The current assessor emits soil health, yield stability, and labour feasibility as `not_assessed` because it lacks comparable sequence evidence and/or required farm inputs. This means the current real workflow correctly withholds the overall ranking, even if some water evidence is available. It must not fall back to a water-only order.
 
-Soil is emitted as `not_assessed` until comparable sequence-specific evidence
-and required management context are available. The assessor records ordered
-transitions from the last reported crop to the first candidate crop, then
-between each candidate event. Cited cowpea/maize and groundnut/maize research
-remains `needs_review` without variety, residue, fertility, and local-transfer
-context. No legume or family-based bonus is awarded.
+## Ranking method
 
-## Ranking and ties
+1. Exclude candidates only when an explicit hard constraint has outcome `failed`. User preferences cannot reinstate those candidates.
+2. Confirm that all four criteria are assessed for every remaining alternative and share a comparison basis criterion by criterion. If any assessment is missing or incomparable, withhold the overall rank without reweighting.
+3. Map qualitative ratings to ordinal values: High=3, Moderate=2, Low=1. Multiply each by its normalized priority share and compare the weighted sums. Fractions are used internally for deterministic exact ordering.
+4. Return the top three alternatives, preserving equal weighted totals as ties. Candidate ID supplies stable display order within a tie, not agronomic preference.
+5. Return criterion ratings, source references, confidence, assumptions, rating basis, selected and equal weights, sensitivity, and trade-off explanations. The baseline remains separate.
 
-1. Exclude candidates only when an explicit hard constraint has outcome
-   `failed`. Unknown calendars, unvalidated suitability, and crop repetition
-   are review warnings, not automatic exclusions.
-2. Compare candidates with assessed water evidence on one shared basis, High
-   before Moderate before Low. Incompatible water bases withhold the ranking.
-3. Leave options with missing primary evidence unranked. If no alternatives
-   have comparable primary evidence, return ranking status `withheld`.
-4. Within a water tie, use soil only if every member has an assessed soil rating
-   on the same basis. Otherwise preserve the tie.
-5. Return at most three alternatives. Candidate ID provides stable display
-   order inside a tie; it is not an agronomic preference. If the three-item cap
-   cuts through a tied group, `tie_at_limit` and the rationale state that equal
-   options were omitted.
-
-The ranking is deterministic and provisional. Qualitative classes are not
-probabilities or numeric measurements. A rank never claims guaranteed yield,
-measured soil improvement, crop water sufficiency, profitability, or locally
-validated planting advice.
+The weighted ordinal sum is an implementation choice. It assumes equal spacing between High, Moderate, and Low and is compensatory: a gain on a high-priority criterion can offset a weaker rating on another criterion. Therefore, every result must show the criterion strengths and concessions and must not imply that four criteria automatically make the decision more reliable. Reliability still depends on comparable evidence.
 
 ## API response and audit summary
 
-The owner-scoped `RotationResultResponse` contains the separate baseline,
-selected `scoring_result.options`, tie/withholding details, criterion evidence,
-ordered transition assessments, NASA snapshot IDs and indicator provenance,
-plus generator, crop-library, assessment, rule-set, and scoring versions. It
-does not include the persisted 216-item candidate-generation list.
+The owner-scoped `RotationResultResponse` contains the separate baseline, selected options, equal-weight and farmer-priority views, ranking status/reasons, per-criterion evidence, pairwise trade-offs, NASA snapshot IDs and indicator provenance, plus generator, crop-library, assessment, rule-set, and scoring versions. It does not return the persisted 216-item candidate-generation list.
 
-`candidate_pool_summary` reports:
-
-- `total_generated`: generated alternatives plus baseline, if any.
-- `total_excluded`: candidates removed by failed hard constraints.
-- `total_needing_review`: generated candidates whose structural readiness is
-  `needs_review` (this includes nonblocking calendar/suitability warnings).
-- `total_assessed`: candidates with an assessed primary water criterion,
-  including the separate baseline when assessed.
-- `total_rankable`: comparable ranked alternatives, excluding the baseline.
-- `total_returned`: selected alternatives plus the separate baseline, if any.
-
-The `candidate_count` field remains an audit count. Seeing `216` there does not
-mean 216 recommendations are returned. The public response has no more than
-three alternatives; the complete pool remains in the private NY-20 result for
-traceability.
+`candidate_pool_summary` reports generated, excluded, review-needed, fully assessed, rankable, and returned counts. `total_assessed` counts only candidates with all four criteria assessed. `total_rankable` excludes the separate baseline. A generated-pool count of 216 is not 216 recommendations; the public response contains at most three alternatives.
 
 ## Synthetic test example
 
-This is a fabricated test-only example, not a NovaYield crop assessment:
-
-| Candidate | Synthetic water class | Soil | Rank group |
-| --- | --- | --- | --- |
-| `test-a` | High | Not assessed | 1 |
-| `test-b` | Moderate | Not assessed | 2 |
-| `test-c` | Low | Not assessed | 3 |
-
-It demonstrates only the ordering rule. If `test-a` and `test-b` were both
-High, they would share a rank group. Soil would not decide between them because
-it is unassessed.
+Synthetic complete ratings should be used to verify the scoring mechanics, not presented as NovaYield evidence. For example, one option might rate High in water and Low in the other three criteria, while another has the reverse pattern. Equal weights can tie them; a farmer's water-heavy weights can move the first ahead. The response should identify both the gain (water) and concessions (soil, yield stability, and labour). Actual results remain withheld unless research and required farm inputs support comparable ratings across all four criteria.
 
 ## Checks
 

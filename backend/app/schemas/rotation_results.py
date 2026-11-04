@@ -6,7 +6,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.decisions.scoring import ScoringResult
+from app.decisions.scoring import CRITERIA, ScoringResult
 from app.models.rotation_results import FarmDecisionInputSnapshot, RotationResult
 
 
@@ -55,9 +55,12 @@ class RotationResultResponse(BaseModel):
             for item in result.decision_inputs.scoring_request.options
         }
         total_assessed = sum(
-            any(
-                criterion.criterion == "water_resilience" and criterion.status == "assessed"
-                for criterion in assessment.criteria
+            all(
+                any(
+                    criterion.criterion == required and criterion.status == "assessed"
+                    for criterion in assessment.criteria
+                )
+                for required in CRITERIA
             )
             for candidate_id, assessment in assessment_by_id.items()
             if candidate_id not in excluded_ids

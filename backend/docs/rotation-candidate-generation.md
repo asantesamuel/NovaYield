@@ -35,8 +35,10 @@ The assessor records event-level calendar/suitability review state and
 source-scoped predecessor/successor evidence; it does not add scores for
 unsupported relationships. NY-9 requires at least two usable NASA indicators
 for each past analysis period before it can assess the primary water criterion.
-See [NY-8 assessment and scoring](rotation-scoring.md) for the water-first
-ranking and response summary.
+See [NY-8 assessment and scoring](rotation-scoring.md) for the provisional
+four-criterion weighted ranking policy and response summary. Missing evidence
+in any active criterion withholds the overall rank; the generator itself does
+not score or rank candidates.
 
 ## Local checks
 

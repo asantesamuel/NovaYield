@@ -163,7 +163,11 @@ def test_missing_past_environmental_context_withholds_the_primary_rating_and_ran
         make_candidate(("groundnut", "cowpea", "cassava")),
         historical_indicators=(),
     )
-    result = score_rotation_options(ScoringRequest(options=(option,)))
+    second_option = build_crop_evidence_option(
+        make_candidate(("maize", "cowpea", "yam")),
+        historical_indicators=(),
+    )
+    result = score_rotation_options(ScoringRequest(options=(option, second_option)))
     water = next(item for item in option.criteria if item.criterion == "water_resilience")
 
     assert water.status == "not_assessed"

@@ -120,14 +120,15 @@ candidate-generation and scoring outputs; the route returns the saved result.
 Because this POST may retrieve snapshots and always saves a result, browser
 callers using the cookie session must send the CSRF token in `X-CSRF-Token`.
 
-This orchestration returns NY-8 v2's **provisional top three water-first
-alternatives**, not a validated farm prescription. It may examine all 6³ (216)
-combinations internally; `scoring_result.options` contains at most three. A
-known current practice is separate in `baseline_option`. The [evidence
-matrix](../../analysis_docs/research/ny-8-crop-criterion-evidence-matrix.md)
-documents crop classes, sources, confidence, and limits. A sequence with
-unassessed water evidence remains unranked; missing soil evidence does not
-block water ordering and cannot break a tie. Calendar/suitability warnings,
-historical NASA provenance, assumptions, and trade-offs stay visible. The
+This orchestration returns at most three **provisional alternatives** only when
+all four criteria have comparable evidence across the options being compared.
+Farm priorities alter the weighted order, and the result includes equal-weight
+and selected-priority views plus explicit criterion trade-offs. Missing soil,
+yield-stability, labour, or water evidence withholds the overall rank; it is not
+imputed and weights are not redistributed. The current public profile is
+therefore not rank-ready. The workflow may examine all 6³ (216) combinations
+internally; `scoring_result.options` contains at most three. A known current
+practice is separate in `baseline_option`. Calendar/suitability warnings,
+historical NASA provenance, assumptions, and trade-offs remain visible. The
 farmer supplies history for each request; it is retained without being silently
 promoted to locally validated evidence.

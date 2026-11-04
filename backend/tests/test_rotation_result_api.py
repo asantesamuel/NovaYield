@@ -129,19 +129,21 @@ def make_result(
         )
         for criterion in CRITERIA
     )
+    candidates = [
+        candidate
+        for candidate in generated.candidates
+        if len({event.crop.crop_id for event in candidate.events}) > 1
+    ][:2]
     scoring_request = ScoringRequest(
-        options=(
+        options=tuple(
             RotationOptionEvidence(
-                candidate=next(
-                    candidate
-                    for candidate in generated.candidates
-                    if len({event.crop.crop_id for event in candidate.events}) > 1
-                ),
+                candidate=candidate,
                 criteria=evidence,
                 benefits=("Synthetic fixture benefit.",),
                 trade_offs=("Synthetic fixture trade-off.",),
                 assumptions=("Synthetic fixture only.",),
-            ),
+            )
+            for candidate in candidates
         )
     )
     return RotationResult.model_construct(

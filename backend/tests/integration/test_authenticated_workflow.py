@@ -311,8 +311,8 @@ def test_authenticated_workflow_persists_reuses_and_enforces_ownership(
                 assert any(item["location_key"] == "ejura" for item in catalog.json()["locations"])
                 assert_public_payload_is_private(catalog.text)
 
-                owner_user = await register_and_login(owner, "ny10-owner@example.test")
-                other_user = await register_and_login(other, "ny10-other@example.test")
+                owner_user = await register_and_login(owner, "ny10-owner@example.com")
+                other_user = await register_and_login(other, "ny10-other@example.com")
                 assert owner_user["id"] != other_user["id"]
 
                 # The API rejects client-supplied ownership; the authenticated user sets it.
@@ -399,6 +399,8 @@ def test_authenticated_workflow_persists_reuses_and_enforces_ownership(
                     if item["code"] == "seasonal_precipitation_total"
                 )
                 assert precipitation["source"] == "MERRA2"
+                assert precipitation["source_scope"] == "parameter"
+                assert precipitation["source_products"] == ["MERRA2"]
                 assert precipitation["units"] == "mm/season"
                 assert precipitation["coverage"]["expected_days"] == 3
                 assert precipitation["coverage"]["valid_days"] == 3
@@ -551,7 +553,7 @@ def test_authenticated_workflow_persists_reuses_and_enforces_ownership(
 
                 relogin = await owner.post(
                     "/api/v1/auth/login",
-                    json={"email": "ny10-owner@example.test", "password": SYNTHETIC_PASSWORD},
+                    json={"email": "ny10-owner@example.com", "password": SYNTHETIC_PASSWORD},
                     headers=await csrf_headers(owner),
                 )
                 assert relogin.status_code == 204
@@ -591,7 +593,7 @@ def test_partial_nasa_values_keep_missingness_and_coverage_visible() -> None:
                 transport=httpx.ASGITransport(app=app),
                 base_url="http://testserver",
             ) as client:
-                await register_and_login(client, "ny10-partial@example.test")
+                await register_and_login(client, "ny10-partial@example.com")
                 farm = await client.post(
                     "/api/v1/farms",
                     json=FARM_REQUEST,
@@ -642,7 +644,7 @@ def test_absent_nasa_fallback_returns_unavailable_and_withholds_rotation_rank() 
                 transport=httpx.ASGITransport(app=app),
                 base_url="http://testserver",
             ) as client:
-                await register_and_login(client, "ny10-unavailable@example.test")
+                await register_and_login(client, "ny10-unavailable@example.com")
                 farm = await client.post(
                     "/api/v1/farms",
                     json=FARM_REQUEST,
@@ -711,7 +713,7 @@ def test_mongo_repository_failure_is_mapped_to_a_safe_api_error(
                 transport=httpx.ASGITransport(app=app),
                 base_url="http://testserver",
             ) as client:
-                await register_and_login(client, "ny10-mongo-failure@example.test")
+                await register_and_login(client, "ny10-mongo-failure@example.com")
                 app.dependency_overrides[get_farm_repository] = lambda: FailingFarmRepository()
                 try:
                     response = await client.post(

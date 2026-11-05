@@ -91,10 +91,10 @@ def test_connection_initializes_beanie_once_and_closes_shared_client() -> None:
     async def run() -> None:
         settings = Settings(_env_file=None, mongodb_database_name="ny4_tests")
         client = FakeClient()
-        factory_calls: list[tuple[str, dict[str, int]]] = []
+        factory_calls: list[tuple[str, dict[str, object]]] = []
         initializer_calls: list[dict[str, object]] = []
 
-        def make_client(uri: str, **options: int) -> FakeClient:
+        def make_client(uri: str, **options: object) -> FakeClient:
             factory_calls.append((uri, options))
             return client
 
@@ -116,7 +116,7 @@ def test_connection_initializes_beanie_once_and_closes_shared_client() -> None:
         assert factory_calls == [
             (
                 "mongodb://localhost:27017",
-                {"serverSelectionTimeoutMS": 2_000},
+                {"serverSelectionTimeoutMS": 2_000, "tz_aware": True},
             )
         ]
         assert len(initializer_calls) == 1

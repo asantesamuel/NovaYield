@@ -16,6 +16,7 @@ from app.integrations.nasa.power import (
     PowerParameterCode,
     PowerParameterMetadata,
     PowerParameterSeries,
+    PowerProviderMetadata,
     PowerRequest,
     SeasonalSummary,
 )
@@ -116,6 +117,12 @@ def make_snapshot(
     return EnvironmentalSnapshot.model_construct(
         identity=IDENTITY,
         retrieved_at=RETRIEVED_AT,
+        provider_metadata=PowerProviderMetadata(
+            api_name="POWER Daily API",
+            api_version="test",
+            header_title="NASA POWER test response",
+            source_products=["MERRA2", "POWER"],
+        ),
         parameters=parameters,
         request_contexts=[],
     )
@@ -150,6 +157,8 @@ def test_complete_series_produce_research_defined_indicators_deterministically()
     assert rainfall.status == mean_temperature.status == mean_maximum.status == "complete"
     assert rainfall.data_status == "live"
     assert rainfall.source == "MERRA2"
+    assert rainfall.source_scope == "parameter"
+    assert rainfall.source_products == ("MERRA2", "POWER")
     assert rainfall.period_start == START_DATE
     assert rainfall.period_end == END_DATE
     assert rainfall.retrieved_at == RETRIEVED_AT
@@ -160,6 +169,8 @@ def test_complete_series_produce_research_defined_indicators_deterministically()
     assert rainfall.calculation_version == INDICATOR_CALCULATION_VERSION
     assert all(indicator.name and indicator.definition for indicator in first)
     assert all(indicator.source == "MERRA2" for indicator in first)
+    assert all(indicator.source_scope == "parameter" for indicator in first)
+    assert all(indicator.source_products == ("MERRA2", "POWER") for indicator in first)
     assert all(indicator.period_start == START_DATE for indicator in first)
     assert all(indicator.period_end == END_DATE for indicator in first)
     assert all(indicator.data_status == "live" for indicator in first)
@@ -236,6 +247,26 @@ def test_missing_parameter_or_unrecognized_units_is_unavailable() -> None:
     assert missing.value is None
     assert missing.status == "unavailable"
     assert missing.coverage.missing_days == 2
+    assert missing.source == "NASA POWER"
+    assert missing.source_scope == "provider"
+    assert missing.source_products == ("MERRA2", "POWER")
+
+
+def test_missing_parameter_source_falls_back_to_provider_and_keeps_header_products() -> None:
+    snapshot = make_snapshot()
+    parameters = {
+        code: series.model_copy(
+            update={"metadata": series.metadata.model_copy(update={"source": None})}
+        )
+        for code, series in snapshot.parameters.items()
+    }
+    snapshot = snapshot.model_copy(update={"parameters": parameters})
+
+    indicators = calculate_environmental_indicators(snapshot, data_status="live")
+
+    assert all(indicator.source == "NASA POWER" for indicator in indicators)
+    assert all(indicator.source_scope == "provider" for indicator in indicators)
+    assert all(indicator.source_products == ("MERRA2", "POWER") for indicator in indicators)
 
 
 def test_duplicate_and_non_finite_daily_records_are_reported_as_missing() -> None:

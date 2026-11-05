@@ -104,6 +104,8 @@ def make_result(
         status="complete",
         data_status="cached",
         source="NASA POWER",
+            source_scope="provider",
+            source_products=(),
         period_start=date(2024, 1, 1),
         period_end=date(2024, 3, 31),
         retrieved_at=datetime(2026, 1, 1, tzinfo=UTC),

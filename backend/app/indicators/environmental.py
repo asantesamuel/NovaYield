@@ -23,6 +23,8 @@ IndicatorCode = Literal[
 IndicatorStatus = Literal["complete", "partial", "unavailable"]
 IndicatorDataStatus = Literal["live", "cached", "unavailable"]
 CalculationMethod = Literal["sum", "mean"]
+IndicatorSourceScope = Literal["parameter", "provider"]
+NASA_POWER_SOURCE = "NASA POWER"
 
 INDICATOR_CALCULATION_VERSION = "ny7-v1"
 
@@ -98,6 +100,8 @@ class EnvironmentalIndicator(BaseModel):
     status: IndicatorStatus
     data_status: IndicatorDataStatus
     source: str | None
+    source_scope: IndicatorSourceScope | None
+    source_products: tuple[str, ...]
     period_start: date
     period_end: date
     retrieved_at: datetime | None
@@ -122,6 +126,8 @@ def calculate_environmental_indicators(
     period_end = snapshot.identity.end_date
     expected_days = (period_end - period_start).days + 1
     parameters = snapshot.parameters
+    provider_metadata = getattr(snapshot, "provider_metadata", None)
+    source_products = tuple(provider_metadata.source_products) if provider_metadata else ()
 
     return tuple(
         _calculate_indicator(
@@ -133,6 +139,7 @@ def calculate_environmental_indicators(
             retrieved_at=snapshot.retrieved_at,
             data_status=data_status,
             season_context=season_context,
+            source_products=source_products,
         )
         for definition in INDICATOR_DEFINITIONS
     )
@@ -177,6 +184,7 @@ def _calculate_indicator(
     retrieved_at: datetime | None,
     data_status: IndicatorDataStatus,
     season_context: SnapshotSeasonContext | None,
+    source_products: tuple[str, ...],
 ) -> EnvironmentalIndicator:
     if series is None:
         return _unavailable_indicator(
@@ -188,6 +196,9 @@ def _calculate_indicator(
             data_status=data_status,
             warning=f"Required NASA POWER parameter {definition.parameter} is missing.",
             season_context=season_context,
+            source=NASA_POWER_SOURCE,
+            source_scope="provider",
+            source_products=source_products,
         )
 
     values_by_date, input_warnings = _values_by_date(series, period_start, period_end)
@@ -198,7 +209,9 @@ def _calculate_indicator(
     ]
     missing_days = expected_days - len(valid_values)
     coverage = _coverage(expected_days, len(valid_values), missing_days)
-    source = series.metadata.source
+    parameter_source = series.metadata.source
+    source = parameter_source or NASA_POWER_SOURCE
+    source_scope: IndicatorSourceScope = "parameter" if parameter_source else "provider"
     resolution = series.metadata.spatial_resolution
 
     if series.metadata.normalized_units != definition.expected_input_units:
@@ -219,6 +232,8 @@ def _calculate_indicator(
             coverage,
             (*input_warnings, warning),
             season_context,
+            source_scope=source_scope,
+            source_products=source_products,
         )
 
     if not valid_values:
@@ -236,6 +251,8 @@ def _calculate_indicator(
             coverage,
             (*input_warnings, warning),
             season_context,
+            source_scope=source_scope,
+            source_products=source_products,
         )
 
     value = math.fsum(valid_values)
@@ -262,6 +279,8 @@ def _calculate_indicator(
         coverage,
         warnings,
         season_context,
+        source_scope=source_scope,
+        source_products=source_products,
     )
 
 
@@ -317,13 +336,16 @@ def _unavailable_indicator(
     warning: str,
     season_context: SnapshotSeasonContext | None,
     additional_warnings: tuple[str, ...] = (),
+    source: str | None = None,
+    source_scope: IndicatorSourceScope | None = None,
+    source_products: tuple[str, ...] = (),
 ) -> EnvironmentalIndicator:
     return _make_indicator(
         definition,
         None,
         "unavailable",
         data_status,
-        None,
+        source,
         None,
         period_start,
         period_end,
@@ -331,6 +353,8 @@ def _unavailable_indicator(
         _coverage(expected_days, 0, expected_days),
         (warning, *additional_warnings),
         season_context,
+        source_scope=source_scope,
+        source_products=source_products,
     )
 
 
@@ -347,6 +371,9 @@ def _make_indicator(
     coverage: IndicatorCoverage,
     warnings: tuple[str, ...],
     season_context: SnapshotSeasonContext | None,
+    *,
+    source_scope: IndicatorSourceScope | None = None,
+    source_products: tuple[str, ...] = (),
 ) -> EnvironmentalIndicator:
     return EnvironmentalIndicator(
         code=definition.code,
@@ -358,6 +385,8 @@ def _make_indicator(
         status=status,
         data_status=data_status,
         source=source,
+        source_scope=source_scope,
+        source_products=source_products,
         period_start=period_start,
         period_end=period_end,
         retrieved_at=retrieved_at,

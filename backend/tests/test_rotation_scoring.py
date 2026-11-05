@@ -1,8 +1,10 @@
 """NY-8 tests use synthetic ratings unless a test explicitly names public evidence."""
 
 from datetime import date
+from decimal import Decimal
 
 import pytest
+from bson.decimal128 import Decimal128
 from pydantic import ValidationError
 
 from app.decisions.crop_evidence import build_crop_evidence_option
@@ -534,3 +536,47 @@ def test_synthetic_four_criterion_scoring_is_deterministic_and_labeled_provision
     assert first.scoring_version == "ny8-scoring-v4"
     assert first.ranking_mode == "four_criterion"
     assert first.default_weights.normalized_weights == first.selected_weights.normalized_weights
+
+
+def test_scoring_result_rehydrates_mongodb_decimal128_percentages() -> None:
+    """Mongo returns Decimal128 for stored weights; the domain model restores Decimal."""
+
+    scored = score_rotation_options(
+        ScoringRequest(
+            options=(
+                make_option(
+                    "mongo-round-trip-a",
+                    ("maize", "cowpea", "groundnut"),
+                    "high",
+                    soil_rating="moderate",
+                    yield_rating="low",
+                    labor_rating="moderate",
+                ),
+                make_option(
+                    "mongo-round-trip-b",
+                    ("cowpea", "groundnut", "maize"),
+                    "moderate",
+                    soil_rating="high",
+                    yield_rating="moderate",
+                    labor_rating="low",
+                ),
+            )
+        )
+    )
+
+    def encode_mongo_decimals(value: object) -> object:
+        if isinstance(value, Decimal):
+            return Decimal128(value)
+        if isinstance(value, dict):
+            return {key: encode_mongo_decimals(item) for key, item in value.items()}
+        if isinstance(value, tuple):
+            return tuple(encode_mongo_decimals(item) for item in value)
+        if isinstance(value, list):
+            return [encode_mongo_decimals(item) for item in value]
+        return value
+
+    mongo_decoded_document = encode_mongo_decimals(scored.model_dump(mode="python"))
+    restored = ScoringResult.model_validate(mongo_decoded_document)
+
+    assert restored == scored
+    assert isinstance(restored.selected_weights.normalized_weights[0].percent, Decimal)

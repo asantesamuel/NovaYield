@@ -10,6 +10,7 @@ from app.integrations.nasa.power import (
     DateCoverage,
     PowerParameterMetadata,
     PowerParameterSeries,
+    PowerProviderMetadata,
     PowerRequest,
     SeasonalSummary,
 )
@@ -93,6 +94,12 @@ def make_snapshot(request: PowerRequest) -> EnvironmentalSnapshot:
     return EnvironmentalSnapshot.model_construct(
         identity=build_snapshot_identity(request, location_secret=LOCATION_SECRET),
         retrieved_at=RETRIEVED_AT,
+        provider_metadata=PowerProviderMetadata(
+            api_name="POWER Daily API",
+            api_version="test",
+            header_title="NASA POWER test response",
+            source_products=["MERRA2", "POWER"],
+        ),
         parameters={"T2M": temperature},
         request_contexts=[previous_context],
     )
@@ -136,6 +143,7 @@ def test_calculation_uses_matching_snapshot_and_current_request_context(
     assert all(indicator.crop == "maize" for indicator in indicators)
     assert all(indicator.calendar_source_version == "ny13-research-v1" for indicator in indicators)
     assert all(indicator.retrieved_at == RETRIEVED_AT for indicator in indicators)
+    assert all(indicator.source_products == ("MERRA2", "POWER") for indicator in indicators)
     assert all(indicator.season_label != "old season" for indicator in indicators)
     assert all(
         "A NASA refresh failed; this result uses the stored snapshot." in indicator.warnings
@@ -170,6 +178,8 @@ def test_missing_snapshot_returns_explicit_unavailable_indicators() -> None:
     assert all(indicator.period_end == END_DATE for indicator in indicators)
     assert all(indicator.retrieved_at is None for indicator in indicators)
     assert all(indicator.source is None for indicator in indicators)
+    assert all(indicator.source_scope is None for indicator in indicators)
+    assert all(indicator.source_products == () for indicator in indicators)
     assert all(indicator.coverage.expected_days == 2 for indicator in indicators)
     assert all(indicator.coverage.valid_days == 0 for indicator in indicators)
     assert all(indicator.coverage.missing_days == 2 for indicator in indicators)

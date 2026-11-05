@@ -16,6 +16,7 @@ This directory contains Nova Yield's FastAPI application and Python dependencies
 - `docs/persistence-conventions.md` explains MongoDB references, indexes, and lifecycle conventions from NY-4.
 - `docs/nasa-power.md` records the NY-5 request, normalization, coverage, privacy, and error contracts.
 - `docs/nasa-power-snapshots.md` records the NY-6 identity, persistence, and refresh-policy decisions.
+- `docs/ny10-integration-verification.md` explains the authenticated end-to-end workflow checks and their synthetic test profile.
 - `docs/supported-locations.md` and `docs/farms-api.md` describe the curated location catalog, coordinate privacy, farm requests, authentication, and coverage notice.
 
 ## Local development (Windows PowerShell)
@@ -88,8 +89,9 @@ The unit tests use fakes and do not require MongoDB. To run the optional real-da
 ```powershell
 python -m pytest tests/test_database.py -k integration
 python -m pytest tests/test_environmental_snapshot_integration.py
+python -m pytest tests/integration -q
 ```
 
-Both integration tests create and drop uniquely named temporary databases. The snapshot test mocks NASA POWER and verifies that MongoDB stores one normalized snapshot which a later request reuses without another provider call. Do not point these tests at a database containing data you need to keep.
+The database integration tests create and drop uniquely named temporary databases. The NY-10 suite uses a fixed synthetic farm/history profile and mocks NASA POWER; it exercises the authenticated API against real Mongo persistence, including cached reuse and saved result history. Do not point these tests at a database containing data you need to keep. See the [NY-10 verification guide](docs/ny10-integration-verification.md) for exact coverage, safety boundaries, and the current sample-data limitation.
 
 The committed `.env.example` contains non-secret development defaults. Read [the persistence conventions](docs/persistence-conventions.md) before adding a model or repository.

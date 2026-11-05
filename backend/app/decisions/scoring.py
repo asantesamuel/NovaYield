@@ -8,9 +8,10 @@ from __future__ import annotations
 
 from decimal import ROUND_HALF_UP, Decimal
 from fractions import Fraction
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from bson.decimal128 import Decimal128
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
 from app.decisions.rotation import (
     CandidateRuleFinding,
@@ -20,6 +21,17 @@ from app.indicators.environmental import EnvironmentalIndicator
 
 SCORING_VERSION = "ny8-scoring-v4"
 WEIGHT_PERCENT_QUANTUM = Decimal("0.0001")
+
+
+def _normalize_bson_decimal(value: object) -> object:
+    """Convert MongoDB's BSON Decimal128 wrapper back to Python Decimal."""
+
+    if isinstance(value, Decimal128):
+        return value.to_decimal()
+    return value
+
+
+WeightPercent = Annotated[Decimal, BeforeValidator(_normalize_bson_decimal)]
 
 Criterion = Literal[
     "water_resilience",
@@ -224,7 +236,7 @@ class WeightShare(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     criterion: Criterion
-    percent: Decimal = Field(ge=0, le=100)
+    percent: WeightPercent = Field(ge=0, le=100)
 
 
 class WeightProfile(BaseModel):
@@ -245,7 +257,7 @@ class WeightedCriterionDifference(BaseModel):
     criterion: Criterion
     higher_ranked_rating: CriterionRating
     lower_ranked_rating: CriterionRating
-    selected_weight_percent: Decimal = Field(ge=0, le=100)
+    selected_weight_percent: WeightPercent = Field(ge=0, le=100)
 
 
 class RankingTradeoff(BaseModel):
@@ -274,8 +286,8 @@ class CriterionResult(BaseModel):
     status: EvidenceStatus
     rating: CriterionRating | None
     confidence: Confidence | None
-    equal_weight_percent: Decimal | None = None
-    selected_weight_percent: Decimal | None = None
+    equal_weight_percent: WeightPercent | None = None
+    selected_weight_percent: WeightPercent | None = None
     rationale: str
     comparison_basis: str | None
     evidence_references: tuple[str, ...]

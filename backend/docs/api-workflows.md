@@ -28,7 +28,11 @@ lets an authenticated caller explicitly request a refresh. NY-7 calculates
 indicators from the returned persisted snapshot. The response includes the
 human-readable location label, requested dates, per-indicator units, source,
 coverage, resolution and live/cached/unavailable status, plus cache and
-freshness metadata. It never includes the catalog coordinates, owner ID,
+freshness metadata. For each indicator, `source` uses the parameter source if
+NASA provides one, otherwise it identifies the provider as `NASA POWER`.
+`source_scope` distinguishes parameter-level from provider-level attribution;
+`source_products` preserves NASA's response-header list without assigning every
+listed product to every variable. It never includes the catalog coordinates, owner ID,
 credentials, or the raw NASA response.
 
 Date ranges must be supported by NASA POWER Daily (1981-01-01 onward), ordered,

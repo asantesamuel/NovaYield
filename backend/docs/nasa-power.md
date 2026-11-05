@@ -26,6 +26,13 @@ POWER Daily defaults to Local Solar Time unless the request explicitly sets UTC.
 - Provider/service, retrieval timestamp, live retrieval status, UTC time standard, and static NASA POWER source URL (the URL contains no query coordinates).
 - Date window, with optional caller-provided season label, calendar version, and crop context. The integration does not choose or validate a local planting calendar.
 - NASA API title/version/source products and any per-parameter source/resolution metadata available in the response. It does not return requested or returned point coordinates. If NASA provides only a source-native-resolution label, the integration preserves that wording and does not invent a numeric grid size.
+
+The environmental-context response keeps source scope explicit. An indicator's
+`source` uses its per-parameter source when NASA supplies one; otherwise it names
+the provider as `NASA POWER`. `source_scope` labels that value as `parameter` or
+`provider`, and `source_products` carries NASA's response-header product list
+without implying that every listed product applies individually to every
+parameter.
 - One daily value for each date in the inclusive range and each required parameter. A missing key or the response's `header.fill_value` becomes `None`, never zero.
 - A window summary: sum of valid `PRECTOTCORR` days (reported as `mm/season` when NASA metadata says `mm/day`), arithmetic mean of valid `T2M` values, and arithmetic mean of valid daily `T2M_MAX` values. `T2M_MAX` is not the hottest value of the whole period.
 - Per-parameter expected, valid, missing, and percentage coverage, plus `complete`, `partial`, or `unavailable` status. Partial summaries use only valid values and include a warning; zero valid values produce a null result. No interpolation, imputation, fallback, or minimum decision-coverage threshold is applied.

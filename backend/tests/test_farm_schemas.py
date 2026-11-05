@@ -6,7 +6,6 @@ from pydantic import ValidationError
 
 from app.database.registry import load_document_models
 from app.farms.contracts import (
-    DEFAULT_FARMER_PRIORITIES,
     LocationCoordinates,
     default_farmer_priorities,
 )
@@ -85,10 +84,10 @@ def test_location_coordinate_pair_is_required_and_bounded() -> None:
         LocationCoordinates.model_validate({"latitude": 0, "longitude": 181})
 
 
-def test_create_defaults_to_equal_priorities_and_preserves_unknown_inputs() -> None:
+def test_create_keeps_only_supported_farm_inputs_and_preserves_unknowns() -> None:
     profile = FarmCreate.model_validate(valid_profile())
 
-    assert profile.farmer_priorities.model_dump() == DEFAULT_FARMER_PRIORITIES
+    assert profile.farmer_priorities is None
     assert profile.soil_texture is None
     assert profile.irrigation_access is None
     assert profile.previous_crops is None
@@ -110,6 +109,19 @@ def test_create_trims_profile_fields_and_accepts_only_a_catalog_key() -> None:
     assert profile.location_key == "ejura"
     assert profile.soil_texture == "sandy loam"
     assert profile.previous_crops == ["maize", "cowpea"]
+
+    with_priorities = FarmCreate.model_validate(
+        {
+            **valid_profile(),
+            "farmer_priorities": {
+                "water_resilience": 40,
+                "soil_health_potential": 30,
+                "yield_stability_proxy": 20,
+                "labor_feasibility": 10,
+            },
+        }
+    )
+    assert with_priorities.farmer_priorities.water_resilience == 40
 
     with pytest.raises(ValidationError):
         FarmCreate.model_validate({"name": "North field", "location_key": "ejura", "latitude": 7.3})
@@ -134,7 +146,18 @@ def test_update_requires_changes_and_cannot_clear_required_fields() -> None:
     with pytest.raises(ValidationError):
         FarmUpdate.model_validate({"location_key": None})
     with pytest.raises(ValidationError):
-        FarmUpdate.model_validate({"farmer_priorities": None})
+        FarmUpdate.model_validate({"farmer_priorities": {"water_resilience": 100}})
+    priorities = FarmUpdate.model_validate(
+        {
+            "farmer_priorities": {
+                "water_resilience": 40,
+                "soil_health_potential": 30,
+                "yield_stability_proxy": 20,
+                "labor_feasibility": 10,
+            }
+        }
+    )
+    assert priorities.farmer_priorities.water_resilience == 40
 
     clear_optional_field = FarmUpdate.model_validate({"soil_texture": None})
     assert clear_optional_field.model_dump(exclude_unset=True) == {"soil_texture": None}
@@ -163,3 +186,4 @@ def test_public_location_and_farm_responses_never_include_coordinates_or_owner()
     assert "coordinates" not in str(location_response)
     assert "latitude" not in str(farm_response)
     assert "longitude" not in str(farm_response)
+    assert farm_response["farmer_priorities"]["water_resilience"] == 25

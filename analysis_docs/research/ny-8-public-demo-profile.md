@@ -1,17 +1,17 @@
 ---
 title: NY-8 public-data demo profile candidate
-status: Provisional evidence-backed profile; not a farm record or rankable recommendation profile
-version: 0.1
-prepared: 2026-10-29
+status: Provisional evidence-backed area archetype; not an individual farm or validated recommendation profile
+version: 0.3
+prepared: 2026-11-04
 ---
 
 # NY-8 Public-Data Demo Profile Candidate
 
 ## Purpose and status
 
-This profile assembles public information for a repeatable NovaYield decision-support scenario without inventing the characteristics or history of a real farm. It is an **area-level archetype**, not an individual farm, and is not locally validated. It can support input-contract work, source/provenance handling, rule-status behavior, and tests for missing evidence. It is **not yet sufficient to verify NY-8's acceptance criterion requiring three scored/ranked options**.
+This profile assembles public information for a repeatable NovaYield decision-support scenario without inventing the characteristics or history of a real farm. It is an **area-level archetype**, not an individual farm, and is not locally validated. It can support input-contract, source/provenance, and provisional crop-class ranking behavior. It cannot establish farm water sufficiency or validate the resulting recommendations.
 
-The Product Owner's approved decisions in [the NovaYield research and product-decision record](../../novayield-research-and-product-decisions.md) remain controlling: use Ejura-Sekyedumase provisionally; keep unvalidated agronomic assumptions provisional; expose partial criterion information; and withhold an overall rank when evidence is missing or incomparable.
+The Product Owner's approved decisions in [the NovaYield research and product-decision record](../../novayield-research-and-product-decisions.md), especially Decision 13, remain controlling: all four criteria are preferred when comparable, with farmer-priority water/soil fallback when they are not. All desk-research crop classes remain provisional. Alternatives without comparable water evidence remain unranked.
 
 ## Proposed profile
 
@@ -27,7 +27,7 @@ The Product Owner's approved decisions in [the NovaYield research and product-de
 | Plot irrigation access | Unknown; the scenario is labelled `rainfed_archetype` only for area-level context | The 88% survey result does not identify the irrigation status of any individual farm. Do not silently turn the group statistic into a farmer answer. |
 | Candidate crop records | Maize, cowpea, groundnut, cassava, yam, and rice | These are the approved MVP candidates. Public municipal and study sources confirm crop presence, not every crop's traits, suitability, or eligibility for every sequence. |
 | Plot's previous crops / current practice | Unknown | The published sources describe area practices and survey responses, not a complete three-event history for a particular plot. Therefore this profile has no asserted current-practice baseline. |
-| Farmer priorities | Product default: 25% each for water resilience, soil-health potential, yield-stability proxy, and labor feasibility | This is the approved neutral product default. It is not a preference reported by a surveyed farmer. |
+| Ranking precedence | Four-criterion weighted comparison when comparable; otherwise farmer-priority water/soil fallback, or water-only if soil is not comparable | This reflects Product Owner Decision 13, not a surveyed farmer's preference. It does not permit unsupported criterion ratings. |
 
 ### Candidate public reference points
 
@@ -55,6 +55,8 @@ The three windows are consecutive named seasonal periods for repeatable historic
 
 The intended public data contract is the NY-13 / NASA POWER Daily Point request: `PRECTOTCORR`, `T2M`, and `T2M_MAX`, `community=AG`, JSON, inclusive dates, and explicit `time-standard=UTC`. **No API response values are stored in this profile yet.** The browsing tool could confirm NASA's API contract but could not retrieve the live JSON response for these query URLs. Before using numeric values, run the existing NY-5 client at the selected public points, capture the response, and verify each parameter's units, fill value, source, coverage, and spatial resolution from NASA's response metadata. Do not treat this evidence file as a cache or runtime-data store.
 
+For the later NY-9 API integration, use the [NY-9 pilot season-calendar evidence handoff](ny-9-pilot-season-calendar-evidence.md) to distinguish these historical weather-analysis periods from crop planting windows and actual farm history. The periods below remain research query windows; they are not NY-8 planting-event slots or planting advice.
+
 ## Public evidence relevant to rotation patterns
 
 The sources support some rotation relationships, but **do not establish an ordered three-event history on a named plot for this profile**:
@@ -69,21 +71,29 @@ NY-15's safe rules still apply: enforce three consecutive events on the same plo
 
 ## Criterion evidence and ranking readiness
 
-| PRD criterion | Public evidence available | Profile status for scoring |
-| --- | --- | --- |
-| Water resilience | Local studies document rain-fed farming and a serious 2020 minor-season maize failure; NASA daily indicator values have not yet been retrieved for these points/windows. A municipal survey statistic does not supply this profile's water access or crop-specific water response. | `not_assessed` |
-| Soil-health potential | Broad municipal soil descriptions and research on legume/residue effects exist, but no soil test or plot-specific residue/management history exists for this profile. | `not_assessed` |
-| Yield-stability proxy | The local study documents a maize-specific failure and reports farmers' experience; it does not provide comparable stability evidence for these candidate three-season options. | `not_assessed` |
-| Labor feasibility | The local study describes maize operations among respondents (mechanized ploughing/harvesting; manual sowing/weeding), but it does not provide comparable operation/labor data for all six candidates or this farm. | `not_assessed` |
+NY-8 prefers all four criteria when their evidence is comparable, and otherwise
+uses normalized farmer priorities over comparable water/soil evidence (or water
+alone when soil is not comparable). Water crop classes are normalized from cited
+desk research; this area archetype still lacks field water access, local
+variety/calendar, and actual NASA response values. See the
+[provisional crop-by-criterion evidence matrix](ny-8-crop-criterion-evidence-matrix.md)
+for evidence scope and limitations.
 
-Under the approved missing-evidence policy, this profile **must not receive an overall score or rank**. It can verify the input contract, provenance labels, unknown-data behavior, hard data-integrity gates, and withholding of a rank. It cannot truthfully verify NY-8's full acceptance criterion for three *ranked* options. That criterion needs a profile with comparable, adequately sourced evidence for all four criteria, plus an actual NASA response; the profile must not be completed by inventing farm history, soil texture, crop traits, labor values, or scores.
+| Criterion / scope note | Public evidence available | Profile status for scoring |
+| --- | --- | --- |
+| Water resilience | Public sources support provisional relative crop classes for five crops; rice remains unassessed until its production ecology is known. No actual NASA response values are stored for these points/windows. | Not rank-ready: there is no individual farm history or NASA context. NY-9 withholds water assessment unless at least two of three approved indicators have usable values for each past period. |
+| Soil-health potential | Ghana legume/residue studies exist, but this profile has no soil test, plot residue history, or management record. | Active but `not_assessed`; omitted from fallback, which uses water alone. |
+| Yield-stability proxy | Local and regional crop studies do not establish comparable sequence-level stability ratings. | Active but `not_assessed`; selects fallback mode. |
+| Labour feasibility | Farm labour availability, plot area, operation timing, and machinery/service access are not captured. | Active but `not_assessed`; selects fallback mode. |
+
+This profile is **not rank-ready** and must not be used to produce a farmer-facing recommendation. It is an area archetype without a real farm, plot history, or stored NASA response. The current NY-9 workflow requires farmer-reported past seasons and usable NASA context for water assessment. If water cannot be assessed for enough alternatives on a common basis, no ranked shortlist is returned; missing soil, yield-stability, or labour evidence alone selects the documented fallback and does not block ranking. The cited crop classes alone do not supply the missing farm or NASA inputs. A real request must retain NASA source, coverage, freshness, and snapshot provenance.
 
 ## Recommended use for NY-8
 
-- Use this profile as an evidence-aware integration/test scenario and assert that unknown or incomparable evidence yields partial criterion output with no overall rank.
+- Use this profile as research context and to identify missingness; do not use it as a ranked API fixture or demo recommendation.
 - Preserve the cited rotation findings as evidence with their scope limits; do not turn them into unverified three-event sequences or universal hard agronomic rules.
 - Test ranking mechanics separately with clearly artificial unit-test values, labelled as synthetic test data and never reused as a public recommendation/demo result.
-- Before claiming NY-8 acceptance, either obtain additional public evidence that is comparable across the four criteria and an actual NASA response, or revisit the acceptance/demo scope with the Product Owner. Do not treat this profile as sufficient for ranked recommendations.
+- Before describing results as validated agronomic advice, obtain local crop/calendar/water-access review and test actual NASA response coverage. Do not treat this area archetype as a verified farm or its provisional rank as field-validated.
 
 ## References
 

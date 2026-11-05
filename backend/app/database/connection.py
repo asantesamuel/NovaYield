@@ -33,6 +33,8 @@ class MongoConnection:
         self._client = client_factory(
             settings.mongodb_uri.get_secret_value(),
             serverSelectionTimeoutMS=settings.mongodb_server_selection_timeout_ms,
+            # BSON stores UTC instants; preserve their timezone on Python readback.
+            tz_aware=True,
         )
         self._database = self._client[settings.mongodb_database_name]
         self._beanie_initializer = beanie_initializer

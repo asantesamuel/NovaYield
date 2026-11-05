@@ -14,6 +14,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 ROTATION_GENERATOR_VERSION = "ny8-candidates-v1"
+ROTATION_RULE_SET_VERSION = "ny8-rules-v1"
 
 CropSuitabilityStatus = Literal["unknown", "provisional", "locally_validated"]
 CalendarStatus = Literal["unknown", "provisional", "locally_validated"]

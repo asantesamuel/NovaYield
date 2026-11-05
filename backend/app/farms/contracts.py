@@ -1,4 +1,4 @@
-"""Farm profile value types and defaults shared across NY-19 layers."""
+"""Farm profile value types and equal-weight preference defaults shared across NY-19 layers."""
 
 from typing import Annotated, Literal
 
@@ -19,6 +19,7 @@ LocationKey = Annotated[
     ),
 ]
 
+# Default preference points used when a farmer has not selected priorities.
 DEFAULT_FARMER_PRIORITIES: dict[str, int] = {
     "water_resilience": 25,
     "soil_health_potential": 25,
@@ -28,7 +29,7 @@ DEFAULT_FARMER_PRIORITIES: dict[str, int] = {
 
 
 def default_farmer_priorities() -> PriorityPoints:
-    """Create the approved equal-priority starting values for a new farm."""
+    """Create equal four-criterion priorities without sharing mutable model state."""
 
     return PriorityPoints(**DEFAULT_FARMER_PRIORITIES)
 

@@ -12,7 +12,6 @@ from pydantic import SecretStr
 from app.core.config import Settings
 from app.farms.location_catalog import SUPPORTED_LOCATION_SEEDS
 from app.farms.routes import (
-    create_farm_router,
     get_farm_repository,
     get_supported_location_repository,
 )
@@ -203,10 +202,6 @@ def farm_api_factory(monkeypatch: pytest.MonkeyPatch) -> Any:
             settings,
             mongo_connection_factory=lambda _settings: FakeMongoConnection(),
         )
-        app.include_router(
-            create_farm_router(app.state.current_active_user),
-            prefix=settings.api_v1_prefix,
-        )
         app.dependency_overrides[get_user_database] = lambda: user_database
         app.dependency_overrides[get_access_token_database] = lambda: token_database
         app.dependency_overrides[get_farm_repository] = lambda: farm_repository
@@ -273,6 +268,12 @@ def test_authenticated_user_can_create_list_get_and_update_farms(farm_api_factor
                 "name": "North field",
                 "location_key": "ejura",
                 "soil_texture": "sandy loam",
+                "farmer_priorities": {
+                    "water_resilience": 40,
+                    "soil_health_potential": 30,
+                    "yield_stability_proxy": 20,
+                    "labor_feasibility": 10,
+                },
             },
             headers=csrf_headers(client),
         )
@@ -282,6 +283,7 @@ def test_authenticated_user_can_create_list_get_and_update_farms(farm_api_factor
 
         assert farm_body["location"] == {"location_key": "ejura", "label": "Ejura"}
         assert farm_body["soil_texture"] == "sandy loam"
+        assert farm_body["farmer_priorities"]["water_resilience"] == 40
         assert "owner_user_id" not in farm_body
         assert "latitude" not in created.text
         assert farms.farms[PydanticObjectId(farm_id)].owner_user_id == PydanticObjectId(user["id"])

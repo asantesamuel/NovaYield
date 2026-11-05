@@ -3,6 +3,7 @@
 import re
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
+from datetime import timedelta
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,7 +22,10 @@ from app.integrations.nasa.power import (
     create_nasa_power_http_client,
 )
 from app.services.authentication import AUTH_COOKIE_NAME, AUTH_CSRF_COOKIE_NAME
-from app.services.environmental_snapshots import EnvironmentalSnapshotService
+from app.services.environmental_snapshots import (
+    EnvironmentalSnapshotService,
+    SnapshotFreshnessPolicy,
+)
 
 
 def create_app(
@@ -49,6 +53,20 @@ def create_app(
             app.state.environmental_snapshot_service = EnvironmentalSnapshotService(
                 nasa_service=nasa_service,
                 location_secret=app_settings.location_hash_secret.get_secret_value(),
+                freshness_policy=SnapshotFreshnessPolicy(
+                    recent_publication_lag=timedelta(
+                        days=app_settings.nasa_recent_publication_lag_days
+                    ),
+                    geos_it_replacement_lag=timedelta(
+                        days=app_settings.nasa_geos_it_replacement_lag_days
+                    ),
+                    geos_it_recheck_interval=timedelta(
+                        days=app_settings.nasa_geos_it_recheck_interval_days
+                    ),
+                ),
+                auto_refresh_failure_backoff=timedelta(
+                    minutes=app_settings.nasa_refresh_failure_backoff_minutes
+                ),
             )
 
             # A failed ping keeps the process alive; readiness reports that it cannot serve.

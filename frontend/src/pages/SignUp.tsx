@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/auth-context';
 
 export default function SignUp() {
   const [email, setEmail] = useState('');
@@ -126,7 +126,7 @@ export default function SignUp() {
       <div className="auth-right">
         <div className="brand-display">
           <h2>NovaYield</h2>
-          <p>Precision AgTech. Global reach. Earth observed.</p>
+          <p>Earth observation context for the supported pilot locations.</p>
         </div>
       </div>
     </div>

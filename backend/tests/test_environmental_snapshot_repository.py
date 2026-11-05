@@ -9,6 +9,7 @@ from pymongo.errors import DuplicateKeyError, ServerSelectionTimeoutError
 
 from app.integrations.nasa.power import PowerRequest
 from app.models.environmental_snapshots import (
+    AutoRefreshRetry,
     EnvironmentalSnapshot,
     SnapshotSeasonContext,
     build_snapshot_identity,
@@ -290,6 +291,84 @@ def test_replace_after_refresh_keeps_document_id_and_merges_contexts(
     assert outcome.snapshot.id == document_id
     assert outcome.snapshot.request_contexts == [first_context, second_context]
     assert replace_calls == [candidate]
+
+
+class FakeRetryCollection:
+    def __init__(self, error: Exception | None = None) -> None:
+        self.error = error
+        self.calls: list[tuple[dict[str, Any], dict[str, Any]]] = []
+
+    async def update_one(self, query: dict[str, Any], update: dict[str, Any]) -> None:
+        self.calls.append((query, update))
+        if self.error is not None:
+            raise self.error
+
+
+def test_failed_auto_refresh_marker_is_conditional_and_contains_no_upstream_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    collection = FakeRetryCollection()
+    stored = make_snapshot()
+    stored.retrieved_at = datetime(2026, 9, 1, tzinfo=UTC)
+    retry = AutoRefreshRetry(
+        failed_at=datetime(2026, 10, 1, tzinfo=UTC),
+        retry_after=datetime(2026, 10, 1, 0, 30, tzinfo=UTC),
+        error_code="PowerTimeoutError",
+    )
+
+    async def fake_find_one(
+        _model: type[EnvironmentalSnapshot], _query: dict[str, str], *, ignore_cache: bool
+    ) -> EnvironmentalSnapshot:
+        assert ignore_cache
+        return stored
+
+    monkeypatch.setattr(
+        EnvironmentalSnapshot, "get_pymongo_collection", classmethod(lambda _model: collection)
+    )
+    monkeypatch.setattr(EnvironmentalSnapshot, "find_one", classmethod(fake_find_one))
+
+    found = run_immediately(
+        EnvironmentalSnapshotRepository().mark_auto_refresh_failure(
+            TEST_IDENTITY,
+            expected_retrieved_at=stored.retrieved_at,
+            retry=retry,
+        )
+    )
+    query, update = collection.calls[0]
+    assert found is stored
+    assert query == {
+        "identity.request_key": TEST_IDENTITY.request_key,
+        "retrieved_at": stored.retrieved_at,
+    }
+    assert update == {"$set": {"auto_refresh_retry": retry.model_dump(mode="python")}}
+    assert "latitude" not in str(update)
+    assert "password" not in str(update)
+
+
+def test_failed_auto_refresh_marker_storage_error_is_sanitized(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    collection = FakeRetryCollection(
+        ServerSelectionTimeoutError("mongodb://user:private-password@host")
+    )
+    monkeypatch.setattr(
+        EnvironmentalSnapshot, "get_pymongo_collection", classmethod(lambda _model: collection)
+    )
+    retry = AutoRefreshRetry(
+        failed_at=datetime(2026, 10, 1, tzinfo=UTC),
+        retry_after=datetime(2026, 10, 1, 0, 30, tzinfo=UTC),
+        error_code="PowerTimeoutError",
+    )
+
+    with pytest.raises(SnapshotStorageUnavailable) as error:
+        run_immediately(
+            EnvironmentalSnapshotRepository().mark_auto_refresh_failure(
+                TEST_IDENTITY,
+                expected_retrieved_at=datetime(2026, 9, 1, tzinfo=UTC),
+                retry=retry,
+            )
+        )
+    assert "private-password" not in str(error.value)
 
 
 class FakeLeaseCollection:

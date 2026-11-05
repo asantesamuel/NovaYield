@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.decisions.climate_features import MatchedCropExposure
 from app.decisions.crop_profiles import (
     CROP_PROFILES,
     CROP_TRANSITION_EVIDENCE,
@@ -22,7 +24,7 @@ from app.decisions.scoring import (
 )
 from app.indicators.environmental import EnvironmentalIndicator
 
-ASSESSMENT_VERSION = "ny8-sequence-assessment-v2"
+ASSESSMENT_VERSION = "ny40-sequence-assessment-v3"
 WaterRating = Literal["high", "moderate", "low"]
 
 YIELD_STABILITY_SOURCES = {
@@ -65,19 +67,68 @@ def build_crop_evidence_option(
     farm_context: FarmAssessmentContext | None = None,
     prior_crop_history: tuple[str, ...] | None = None,
     environmental_context_ready: bool = False,
+    crop_profiles_by_id: Mapping[str, CropProfile | None] | None = None,
+    climate_exposures: tuple[MatchedCropExposure, ...] = (),
+    require_sourced_timing: bool = False,
 ) -> RotationOptionEvidence:
     """Assess one full sequence; never turn missing crop or farm data into a rating."""
 
     context = farm_context or FarmAssessmentContext()
-    crop_profiles = tuple(CROP_PROFILES.get(event.crop.crop_id) for event in candidate.events)
+    profile_source = CROP_PROFILES if crop_profiles_by_id is None else crop_profiles_by_id
+    crop_profiles = tuple(profile_source.get(event.crop.crop_id) for event in candidate.events)
     event_assessments = _assess_events(candidate, crop_profiles, context)
-    water = _assess_sequence_water(
-        candidate,
-        crop_profiles,
-        historical_indicators,
-        context,
-        environmental_context_ready=environmental_context_ready,
-    )
+    if require_sourced_timing and any(
+        event.event.window_start is None
+        or event.event.window_end is None
+        or event.event.harvest_end is None
+        for event in candidate.events
+    ):
+        water = CriterionEvidence(
+            criterion="water_resilience",
+            status="not_assessed",
+            rationale=(
+                "A crop-specific sourced planting and maturity window is unavailable "
+                "for at least one proposed event. The three-event horizon and historical "
+                "climate exposure cannot be compared without inventing dates."
+            ),
+            environmental_inputs=historical_indicators,
+            climate_features=tuple(item.exposure for item in climate_exposures),
+            assumptions=("Unknown or provisional evidence is not promoted to a water rating.",),
+        )
+    else:
+        water = _assess_sequence_water(
+            candidate,
+            crop_profiles,
+            historical_indicators,
+            context,
+            environmental_context_ready=environmental_context_ready,
+        )
+        if climate_exposures:
+            assessed = tuple(
+                item.exposure for item in climate_exposures if item.exposure.status == "assessed"
+            )
+            climate_note = (
+                "Provisional NASA POWER 1991–2020 median annual consecutive-dry-day "
+                "exposure (<1 mm/day) by sourced crop stage: "
+                + "; ".join(
+                    f"{feature.crop_id} {feature.stage_key}, planting window "
+                    f"{feature.planting_window_start} to {feature.planting_window_end}: "
+                    f"{feature.exposure_min_days}–{feature.exposure_max_days} days "
+                    f"(snapshot {feature.source_snapshot_id}; "
+                    f"source {', '.join(feature.source_products) or 'NASA POWER'})."
+                    for feature in assessed
+                )
+                + " These values may inform only the approved strict matched-crop tie preference; "
+                "they are not a crop water-sufficiency rating."
+                if assessed
+                else "Crop-stage dry-spell exposure is not assessed for this option."
+            )
+            water = water.model_copy(
+                update={
+                    "rationale": f"{water.rationale} {climate_note}",
+                    "climate_features": tuple(item.exposure for item in climate_exposures),
+                }
+            )
     transitions = _assess_sequence_transitions(
         candidate,
         crop_profiles,
@@ -103,7 +154,8 @@ def build_crop_evidence_option(
         "review remains outstanding.",
         "Historical NASA indicators describe past analysis periods and are not future "
         "weather or a crop water-balance calculation.",
-        "Future recommendation windows are not source-reviewed crop calendars.",
+        "Future recommendation windows are only asserted when their scoped crop and "
+        "maturity sources supply dates; provisional windows need local review.",
     ]
     if context.irrigation_access is None:
         assumptions.append("Farm irrigation access is unknown and was not inferred.")
@@ -119,6 +171,7 @@ def build_crop_evidence_option(
         event_assessments=event_assessments,
         transition_assessments=transitions,
         criteria=(water, soil, yield_stability, labor_feasibility),
+        climate_exposures=climate_exposures,
         benefits=benefits,
         trade_offs=(
             "Relative water resilience does not establish crop water requirement, "
@@ -139,15 +192,17 @@ def _assess_events(
 
     assessments: list[EventAssessment] = []
     for candidate_event, profile in zip(candidate.events, profiles, strict=True):
+        crop_id = candidate_event.crop.crop_id
         missing: list[str] = []
         if profile is None:
             missing.append("versioned crop profile")
         else:
-            if profile.maturity_days_min is None or profile.maturity_days_max is None:
+            if (
+                candidate_event.event.maturity_days_min is None
+                or candidate_event.event.maturity_days_max is None
+            ):
                 missing.append("sourced crop maturity duration")
-            if profile.calendar_status != "locally_validated":
-                missing.append("locally reviewed crop/community planting calendar")
-            if not profile.production_systems:
+            if crop_id == "rice" and not candidate_event.event.production_system_key:
                 missing.append("crop production system where it affects suitability")
         if candidate_event.event.calendar_status != "locally_validated":
             missing.append("locally validated event calendar")
@@ -156,16 +211,16 @@ def _assess_events(
         if farm_context.irrigation_access is None:
             missing.append("reported farm water access for crop suitability review")
 
-        crop_id = candidate_event.crop.crop_id
         if profile is None:
             status: Literal["needs_review", "not_assessed"] = "not_assessed"
             rationale = "No versioned crop profile exists; this event cannot be assessed."
         else:
             status = "needs_review"
             rationale = (
-                "The candidate window represents a future planting slot, not a verified "
-                "growing-period span. Crop duration, local calendar fit, production-system "
-                "compatibility, and farm suitability are not established."
+                "This future planting-window scenario is not a verified "
+                "farm-specific crop suitability or weather forecast. Remaining review inputs: "
+                + ("; ".join(dict.fromkeys(missing)) or "local agronomic confirmation")
+                + "."
             )
             if crop_id == "rice":
                 rationale += (
@@ -303,23 +358,38 @@ def _assess_sequence_transitions(
 ) -> tuple[TransitionAssessment, ...]:
     """Evaluate ordered historical/current and within-sequence crop pairs."""
 
-    pairs: list[tuple[str | None, str]] = []
+    pairs: list[tuple[str | None, str, str]] = []
     if prior_crop_history:
-        pairs.append((prior_crop_history[-1], candidate.events[0].crop.crop_id))
+        pairs.extend(
+            (previous, following, "reported_history")
+            for previous, following in zip(
+                prior_crop_history,
+                prior_crop_history[1:],
+                strict=False,
+            )
+        )
+        pairs.append(
+            (prior_crop_history[-1], candidate.events[0].crop.crop_id, "history_to_candidate")
+        )
     else:
-        pairs.append((None, candidate.events[0].crop.crop_id))
+        pairs.append((None, candidate.events[0].crop.crop_id, "history_to_candidate"))
     pairs.extend(
-        (candidate.events[index].crop.crop_id, candidate.events[index + 1].crop.crop_id)
+        (
+            candidate.events[index].crop.crop_id,
+            candidate.events[index + 1].crop.crop_id,
+            "candidate",
+        )
         for index in range(len(candidate.events) - 1)
     )
 
     output: list[TransitionAssessment] = []
-    for predecessor, successor in pairs:
+    for predecessor, successor, context in pairs:
         if predecessor is None:
             output.append(
                 TransitionAssessment(
                     predecessor_crop_id=None,
                     successor_crop_id=successor,
+                    context=context,
                     status="needs_review",
                     rationale=(
                         "The crop before the first recommendation event is unknown; "
@@ -336,6 +406,7 @@ def _assess_sequence_transitions(
                 TransitionAssessment(
                     predecessor_crop_id=predecessor,
                     successor_crop_id=successor,
+                    context=context,
                     status="not_assessed",
                     rationale=(
                         "No reviewed, crop-specific transition evidence is registered for "
@@ -356,6 +427,7 @@ def _assess_sequence_transitions(
                 relationship_id=relationship.relationship_id,
                 predecessor_crop_id=predecessor,
                 successor_crop_id=successor,
+                context=context,
                 status="needs_review" if missing else "assessed",
                 rationale=(
                     f"{relationship.study_scope} This source is context-specific and does "

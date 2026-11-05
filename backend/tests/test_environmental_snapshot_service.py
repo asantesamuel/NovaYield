@@ -5,6 +5,7 @@ from typing import Any
 
 import httpx
 import pytest
+from beanie import PydanticObjectId
 
 from app.integrations.nasa.power import (
     NASA_POWER_DAILY_ENDPOINT,
@@ -17,6 +18,7 @@ from app.integrations.nasa.power import (
     normalize_power_response,
 )
 from app.models.environmental_snapshots import (
+    AutoRefreshRetry,
     EnvironmentalSnapshot,
     SnapshotIdentity,
     SnapshotSeasonContext,
@@ -147,6 +149,7 @@ class FakeRepository:
         self.lease_available = True
         self.lease_calls = 0
         self.release_calls = 0
+        self.retry_marks = 0
 
     async def find_by_identity(self, identity: SnapshotIdentity) -> EnvironmentalSnapshot | None:
         return self.snapshots.get(identity.request_key)
@@ -182,6 +185,20 @@ class FakeRepository:
         if context not in contexts:
             contexts.append(context)
             snapshot = snapshot.model_copy(update={"request_contexts": contexts})
+            self.snapshots[identity.request_key] = snapshot
+        return snapshot
+
+    async def mark_auto_refresh_failure(
+        self,
+        identity: SnapshotIdentity,
+        *,
+        expected_retrieved_at: datetime,
+        retry: AutoRefreshRetry,
+    ) -> EnvironmentalSnapshot | None:
+        self.retry_marks += 1
+        snapshot = self.snapshots.get(identity.request_key)
+        if snapshot is not None and snapshot.retrieved_at == expected_retrieved_at:
+            snapshot = snapshot.model_copy(update={"auto_refresh_retry": retry})
             self.snapshots[identity.request_key] = snapshot
         return snapshot
 
@@ -221,6 +238,7 @@ def make_service(
     power_results: list[PowerResult | Exception],
     *,
     policy: SnapshotFreshnessPolicy | None = None,
+    backoff: timedelta = timedelta(minutes=30),
 ) -> tuple[EnvironmentalSnapshotService, FakePowerService]:
     power_service = FakePowerService(power_results)
     service = EnvironmentalSnapshotService(
@@ -229,6 +247,7 @@ def make_service(
         location_secret=LOCATION_SECRET,
         freshness_policy=policy,
         snapshot_factory=make_snapshot,
+        auto_refresh_failure_backoff=backoff,
     )
     return service, power_service
 
@@ -263,6 +282,44 @@ def test_cache_miss_persists_live_values_and_later_hit_skips_nasa() -> None:
     assert repository.insert_calls == 1
     assert repository.lease_calls == 1
     assert repository.release_calls == 1
+
+
+def test_read_only_cached_recovery_never_refreshes_even_when_stale() -> None:
+    repository = FakeRepository()
+    identity = build_snapshot_identity(REQUEST, location_secret=LOCATION_SECRET)
+    snapshot = make_snapshot(identity, make_result(REQUEST, rain=3.0, retrieved_at=NOW))
+    snapshot.id = PydanticObjectId()
+    repository.snapshots[identity.request_key] = snapshot
+    service, power = make_service(
+        repository,
+        [PowerTimeoutError("The provider must not be called")],
+        policy=SnapshotFreshnessPolicy(refresh_after_by_source={"MERRA2": timedelta(days=1)}),
+    )
+
+    recovered = run_immediately(
+        service.retrieve_cached(
+            REQUEST,
+            expected_snapshot_id=str(snapshot.id),
+            now=NOW + timedelta(days=2),
+        )
+    )
+    wrong_id = run_immediately(
+        service.retrieve_cached(
+            REQUEST,
+            expected_snapshot_id=str(PydanticObjectId()),
+            now=NOW + timedelta(days=2),
+        )
+    )
+
+    assert recovered is not None
+    assert recovered.snapshot is not None and recovered.snapshot.id == snapshot.id
+    assert recovered.data_status == "cached"
+    assert recovered.freshness.status == "stale"
+    assert recovered.refresh_attempted is False
+    assert wrong_id is None
+    assert power.calls == 0
+    assert repository.lease_calls == 0
+    assert repository.replace_calls == 0
 
 
 def test_nasa_http_adapter_flows_through_snapshot_cache_and_reuse() -> None:
@@ -365,6 +422,217 @@ def test_unknown_policy_reuses_cached_data_until_explicit_refresh() -> None:
     assert explicit.snapshot is not None
     assert explicit.snapshot.parameters["PRECTOTCORR"].seasonal_summary.value == 10.0
     assert power_service.calls == 2
+
+
+def test_recent_power_period_is_checked_once_after_documented_publication_lag() -> None:
+    """A pre-publication retrieval is revisited without expiring old history."""
+
+    request = PowerRequest(
+        latitude=0.0,
+        longitude=0.0,
+        start_date=date(2026, 9, 1),
+        end_date=date(2026, 9, 30),
+    )
+    first_time = datetime(2026, 10, 1, tzinfo=UTC)
+    published_time = datetime(2026, 10, 3, tzinfo=UTC)
+    repository = FakeRepository()
+    service, power_service = make_service(
+        repository,
+        [
+            make_result(request, rain=2.0, retrieved_at=first_time),
+            make_result(request, rain=3.0, retrieved_at=published_time),
+        ],
+        policy=SnapshotFreshnessPolicy(recent_publication_lag=timedelta(days=3)),
+    )
+
+    first = run_immediately(service.retrieve(request, now=first_time))
+    before_publication = run_immediately(
+        service.retrieve(request, now=published_time - timedelta(days=1))
+    )
+    after_publication = run_immediately(service.retrieve(request, now=published_time))
+    later = run_immediately(service.retrieve(request, now=published_time + timedelta(days=1)))
+
+    assert first.cache_action == "miss"
+    assert before_publication.cache_action == "hit"
+    assert after_publication.cache_action == "refreshed"
+    assert later.cache_action == "hit"
+    assert power_service.calls == 2
+
+
+def test_geos_it_period_checks_for_merra_replacement_and_keeps_cache_on_failure() -> None:
+    """The source label, not a blanket historical TTL, triggers replacement checks."""
+
+    request = PowerRequest(
+        latitude=0.0,
+        longitude=0.0,
+        start_date=date(2026, 6, 1),
+        end_date=date(2026, 7, 1),
+    )
+    first_time = datetime(2026, 7, 2, tzinfo=UTC)
+    check_time = datetime(2026, 9, 1, tzinfo=UTC)
+    repository = FakeRepository()
+    first_result = make_result(request, rain=2.0, retrieved_at=first_time)
+    first_result.provider_metadata.source_products = ["GEOS-IT"]
+    for series in first_result.parameters.values():
+        series.metadata.source = "GEOS-IT"
+    policy = SnapshotFreshnessPolicy(
+        geos_it_replacement_lag=timedelta(days=60),
+        geos_it_recheck_interval=timedelta(days=30),
+    )
+    service, power_service = make_service(
+        repository,
+        [first_result, PowerTimeoutError("NASA POWER request timed out.")],
+        policy=policy,
+    )
+
+    run_immediately(service.retrieve(request, now=first_time))
+    result = run_immediately(service.retrieve(request, now=check_time))
+
+    assert result.cache_action == "refresh_failed"
+    assert result.data_status == "cached"
+    assert result.freshness.status == "stale"
+    assert result.snapshot is not None
+    assert result.snapshot.provider_metadata.source_products == ["GEOS-IT"]
+    assert power_service.calls == 2
+    assert repository.retry_marks == 1
+    assert result.snapshot.auto_refresh_retry.retry_after == check_time + timedelta(minutes=30)
+
+
+def test_failed_geos_auto_refresh_defers_retries_across_service_instances_then_retries() -> None:
+    request = PowerRequest(
+        latitude=0.0,
+        longitude=0.0,
+        start_date=date(2026, 6, 1),
+        end_date=date(2026, 7, 1),
+    )
+    first_time = datetime(2026, 7, 2, tzinfo=UTC)
+    check_time = datetime(2026, 9, 1, tzinfo=UTC)
+    policy = SnapshotFreshnessPolicy(
+        geos_it_replacement_lag=timedelta(days=60),
+        geos_it_recheck_interval=timedelta(days=30),
+    )
+    repository = FakeRepository()
+    geos_result = make_result(request, rain=2.0, retrieved_at=first_time)
+    geos_result.provider_metadata.source_products = ["GEOS-IT"]
+    for series in geos_result.parameters.values():
+        series.metadata.source = "GEOS-IT"
+    identity = build_snapshot_identity(request, location_secret=LOCATION_SECRET)
+    repository.snapshots[identity.request_key] = make_snapshot(identity, geos_result)
+
+    first_service, failed_power = make_service(
+        repository,
+        [PowerTimeoutError("NASA POWER request timed out.")],
+        policy=policy,
+        backoff=timedelta(minutes=45),
+    )
+    failed = run_immediately(first_service.retrieve(request, now=check_time))
+    assert failed.cache_action == "refresh_failed"
+    assert failed.data_status == "cached"
+    assert failed_power.calls == 1
+    assert repository.snapshots[identity.request_key].auto_refresh_retry.retry_after == (
+        check_time + timedelta(minutes=45)
+    )
+
+    restarted_service, restarted_power = make_service(
+        repository,
+        [make_result(request, rain=4.0, retrieved_at=check_time + timedelta(minutes=46))],
+        policy=policy,
+        backoff=timedelta(minutes=45),
+    )
+    deferred = run_immediately(
+        restarted_service.retrieve(request, now=check_time + timedelta(minutes=15))
+    )
+    assert deferred.cache_action == "refresh_deferred"
+    assert deferred.freshness.status == "stale"
+    assert deferred.refresh_attempted is False
+    assert deferred.data_status == "cached"
+    assert "2026-09-01T00:45:00+00:00" in deferred.warnings[0]
+    assert restarted_power.calls == 0
+    assert repository.lease_calls == 1  # the deferred request did not take a lease
+
+    retried = run_immediately(
+        restarted_service.retrieve(request, now=check_time + timedelta(minutes=46))
+    )
+    assert retried.cache_action == "refreshed"
+    assert retried.snapshot.auto_refresh_retry is None
+    assert retried.snapshot.parameters["PRECTOTCORR"].seasonal_summary.value > (
+        failed.snapshot.parameters["PRECTOTCORR"].seasonal_summary.value
+    )
+    assert restarted_power.calls == 1
+
+
+def test_manual_force_refresh_bypasses_backoff_and_clears_marker_on_success() -> None:
+    repository = FakeRepository()
+    policy = SnapshotFreshnessPolicy({"MERRA2": timedelta(days=1)})
+    service, power = make_service(
+        repository,
+        [
+            make_result(REQUEST, rain=2.0, retrieved_at=NOW),
+            PowerTimeoutError("NASA POWER request timed out."),
+            make_result(REQUEST, rain=5.0, retrieved_at=NOW + timedelta(days=3)),
+        ],
+        policy=policy,
+    )
+    run_immediately(service.retrieve(REQUEST, now=NOW))
+    failed = run_immediately(service.retrieve(REQUEST, now=NOW + timedelta(days=3)))
+    assert failed.snapshot.auto_refresh_retry is not None
+    assert power.calls == 2
+
+    forced = run_immediately(
+        service.retrieve(
+            REQUEST,
+            now=NOW + timedelta(days=3, minutes=1),
+            force_refresh=True,
+        )
+    )
+    assert forced.cache_action == "refreshed"
+    assert forced.snapshot.auto_refresh_retry is None
+    assert power.calls == 3
+
+
+def test_manual_failure_does_not_create_or_extend_automatic_backoff() -> None:
+    repository = FakeRepository()
+    policy = SnapshotFreshnessPolicy({"MERRA2": timedelta(days=1)})
+    service, power = make_service(
+        repository,
+        [
+            make_result(REQUEST, rain=2.0, retrieved_at=NOW),
+            PowerTimeoutError("NASA POWER request timed out."),
+            make_result(REQUEST, rain=3.0, retrieved_at=NOW + timedelta(days=3)),
+        ],
+        policy=policy,
+    )
+    run_immediately(service.retrieve(REQUEST, now=NOW))
+    manual_failed = run_immediately(
+        service.retrieve(REQUEST, now=NOW + timedelta(days=3), force_refresh=True)
+    )
+    assert manual_failed.cache_action == "refresh_failed"
+    assert manual_failed.snapshot.auto_refresh_retry is None
+    assert repository.retry_marks == 0
+    automatic = run_immediately(service.retrieve(REQUEST, now=NOW + timedelta(days=3)))
+    assert automatic.cache_action == "refreshed"
+    assert power.calls == 3
+
+
+def test_mature_merra_history_is_reused_under_source_aware_policy() -> None:
+    repository = FakeRepository()
+    policy = SnapshotFreshnessPolicy(
+        recent_publication_lag=timedelta(days=3),
+        geos_it_replacement_lag=timedelta(days=60),
+        geos_it_recheck_interval=timedelta(days=30),
+    )
+    service, power_service = make_service(
+        repository,
+        [make_result(REQUEST, rain=3.0, retrieved_at=NOW)],
+        policy=policy,
+    )
+
+    run_immediately(service.retrieve(REQUEST, now=NOW))
+    later = run_immediately(service.retrieve(REQUEST, now=NOW + timedelta(days=120)))
+
+    assert later.cache_action == "hit"
+    assert later.freshness.status == "unknown"
+    assert power_service.calls == 1
 
 
 def test_refresh_failure_preserves_and_labels_last_cached_snapshot() -> None:

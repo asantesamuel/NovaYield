@@ -1,4 +1,4 @@
-"""Optional integration checks for the NY-19 document and owner index."""
+"""Optional Mongo checks for Farm v2 references, owner isolation and indexes."""
 
 import asyncio
 import os
@@ -10,8 +10,12 @@ from pydantic import SecretStr
 
 from app.core.config import Settings
 from app.database.connection import MongoConnection
+from app.models.crop_catalog import Crop, CropCalendar, CropProfileRevision
+from app.models.farm_reference_options import FarmReferenceOption
 from app.models.farms import FARM_OWNER_INDEX_NAME, Farm
 from app.models.supported_locations import SUPPORTED_LOCATION_KEY_INDEX_NAME, SupportedLocation
+from app.repositories.crop_catalog import CropCatalogRepository
+from app.repositories.farm_reference_options import FarmReferenceRepository
 from app.repositories.farms import FarmRepository
 from app.repositories.supported_locations import SupportedLocationRepository
 from app.schemas.farms import FarmCreate, FarmUpdate
@@ -23,14 +27,21 @@ def test_farm_repository_persists_profiles_and_owner_index_in_mongodb() -> None:
         pytest.skip("Set NOVAYIELD_TEST_MONGODB_URI to run the farm MongoDB integration test")
 
     async def run() -> None:
-        database_name = f"ny19_farm_test_{uuid4().hex}"
+        database_name = f"ny39_farm_test_{uuid4().hex}"
         connection = MongoConnection(
             Settings(
                 _env_file=None,
                 mongodb_uri=SecretStr(uri),
                 mongodb_database_name=database_name,
             ),
-            document_model_loader=lambda: (Farm, SupportedLocation),
+            document_model_loader=lambda: (
+                Farm,
+                SupportedLocation,
+                Crop,
+                CropProfileRevision,
+                CropCalendar,
+                FarmReferenceOption,
+            ),
         )
         connected = False
 
@@ -40,6 +51,15 @@ def test_farm_repository_persists_profiles_and_owner_index_in_mongodb() -> None:
 
             locations_inserted = await SupportedLocationRepository().seed_missing()
             assert locations_inserted == 3
+            catalog_inserted = await CropCatalogRepository().seed_missing()
+            assert catalog_inserted["crops"] == 8
+            assert (await CropCatalogRepository().seed_missing()) == {
+                "crops": 0,
+                "profiles": 0,
+                "calendars": 0,
+            }
+            assert await FarmReferenceRepository().seed_missing() == 8
+            assert await FarmReferenceRepository().seed_missing() == 0
             repository = FarmRepository()
             owner_user_id = PydanticObjectId()
             other_user_id = PydanticObjectId()
@@ -47,13 +67,26 @@ def test_farm_repository_persists_profiles_and_owner_index_in_mongodb() -> None:
                 {
                     "name": "Test field",
                     "location_key": "ejura",
-                    "soil_texture": "sandy loam",
+                    "soil_texture_key": "loamy",
+                    "irrigation_access_key": "none",
+                    "history_status": "complete",
+                    "crop_history": [
+                        {
+                            "crop_key": "maize",
+                            "sequence_order": 1,
+                            "start_date": "2024-03-15",
+                            "end_date": "2024-07-15",
+                        }
+                    ],
                 }
             )
             created = await repository.create(owner_user_id=owner_user_id, profile=profile)
 
             assert created.id is not None
             assert created.owner_user_id == owner_user_id
+            assert created.schema_version == "farm-v2"
+            assert created.crop_history[0].crop_key_snapshot == "maize"
+            assert created.environmental_context.status == "pending"
             assert [
                 farm.id for farm in await repository.list_by_owner(owner_user_id=owner_user_id)
             ] == [created.id]

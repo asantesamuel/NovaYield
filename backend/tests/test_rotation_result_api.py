@@ -17,6 +17,7 @@ from app.decisions.rotation import (
 from app.decisions.scoring import (
     CRITERIA,
     CriterionEvidence,
+    HardConstraintFinding,
     PriorityPoints,
     RotationOptionEvidence,
     ScoringRequest,
@@ -36,6 +37,7 @@ from app.rotation_results.routes import (
     ROTATION_RESULT_NOT_FOUND_DETAIL,
     create_rotation_result_router,
 )
+from app.schemas.rotation_results import RotationResultResponse
 
 
 def make_user(user_id: PydanticObjectId) -> User:
@@ -104,8 +106,8 @@ def make_result(
         status="complete",
         data_status="cached",
         source="NASA POWER",
-            source_scope="provider",
-            source_products=(),
+        source_scope="provider",
+        source_products=(),
         period_start=date(2024, 1, 1),
         period_end=date(2024, 3, 31),
         retrieved_at=datetime(2026, 1, 1, tzinfo=UTC),
@@ -295,7 +297,7 @@ def test_owner_can_list_only_own_farm_results_with_safe_provenance() -> None:
     assert len(body) == 1
     assert body[0]["id"] == str(own_result.id)
     assert body[0]["farm_id"] == str(farm.id)
-    assert set(body[0]) == {
+    assert {
         "id",
         "farm_id",
         "schema_version",
@@ -308,7 +310,11 @@ def test_owner_can_list_only_own_farm_results_with_safe_provenance() -> None:
         "environmental_snapshot_ids",
         "candidate_pool_summary",
         "scoring_result",
-    }
+    } <= set(body[0])
+    assert body[0]["history_event_snapshots"] == []
+    assert body[0]["context_provenance"] is None
+    assert body[0]["climate_reference_provenance"] is None
+    assert body[0]["future_window_summary"] is None
     assert body[0]["generator_version"] == own_result.candidate_generation.generator_version
     assert body[0]["crop_library_version"] == "not_recorded"
     assert body[0]["environmental_snapshot_ids"] == []
@@ -317,7 +323,8 @@ def test_owner_can_list_only_own_farm_results_with_safe_provenance() -> None:
     )
     assert body[0]["candidate_pool_summary"]["total_returned"] == len(
         own_result.scoring_result.options
-    ) + int(own_result.scoring_result.baseline_option is not None)
+    )
+    assert body[0]["scoring_result"]["baseline_option"] is None
     rainfall = body[0]["scoring_result"]["options"][0]["criteria"][0]
     assert rainfall["environmental_inputs"][0]["source"] == "NASA POWER"
     assert rainfall["environmental_inputs"][0]["data_status"] == "cached"
@@ -437,3 +444,73 @@ def test_history_and_detail_routes_require_an_authenticated_user() -> None:
     assert farms.queries == []
     assert results.history_queries == []
     assert results.detail_queries == []
+
+
+def test_unranked_calendar_examples_never_show_hard_excluded_sequences() -> None:
+    """A dated review example must still satisfy the hard validity gate."""
+
+    owner_id = PydanticObjectId()
+    result = make_result(
+        result_id=PydanticObjectId(),
+        farm=make_farm(PydanticObjectId(), owner_id),
+    )
+    dated_candidates = tuple(
+        candidate.model_copy(
+            update={
+                "events": tuple(
+                    item.model_copy(
+                        update={
+                            "event": item.event.model_copy(
+                                update={
+                                    "harvest_start": item.event.window_end,
+                                    "harvest_end": item.event.window_end,
+                                }
+                            )
+                        }
+                    )
+                    for item in candidate.events
+                )
+            }
+        )
+        for candidate in result.candidate_generation.candidates
+    )
+    excluded_id = dated_candidates[0].candidate_id
+    request = ScoringRequest(
+        options=(
+            RotationOptionEvidence(
+                candidate=dated_candidates[0],
+                hard_constraints=(
+                    HardConstraintFinding(
+                        rule_id="SYNTHETIC-HARD-GATE",
+                        outcome="failed",
+                        rationale="Synthetic exclusion for response safety test.",
+                        evidence_references=("synthetic test fixture",),
+                    ),
+                ),
+            ),
+            RotationOptionEvidence(candidate=dated_candidates[1]),
+        )
+    )
+    scored = score_rotation_options(request)
+    assert not scored.options
+    result = result.model_copy(
+        update={
+            "schema_version": "ny38-result-v2",
+            "candidate_generation": result.candidate_generation.model_copy(
+                update={"candidates": dated_candidates}
+            ),
+            "decision_inputs": result.decision_inputs.model_copy(
+                update={"scoring_request": request}
+            ),
+            "scoring_result": scored,
+        }
+    )
+
+    response = RotationResultResponse.from_document(result)
+
+    assert len(response.unranked_calendar_examples) == 3
+    assert excluded_id not in {
+        example.candidate_id for example in response.unranked_calendar_examples
+    }
+    assert response.scoring_result.options == ()
+    assert response.candidate_pool_summary.total_excluded == 1

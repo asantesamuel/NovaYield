@@ -228,9 +228,8 @@ def test_beanie_creates_declared_index_in_mongodb_integration() -> None:
         try:
             connected = await connection.connect()
             assert connected
-            indexes = (
-                await connection.database["ny4_registry_probe"].list_indexes().to_list(length=None)
-            )
+            index_cursor = await connection.database["ny4_registry_probe"].list_indexes()
+            indexes = await index_cursor.to_list(length=None)
             matching_index = next(
                 index for index in indexes if index["name"] == "uq_ny4_registry_probe_request_key"
             )

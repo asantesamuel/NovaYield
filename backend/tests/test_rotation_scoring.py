@@ -17,6 +17,7 @@ from app.decisions.rotation import (
 )
 from app.decisions.scoring import (
     CRITERIA,
+    SCORING_VERSION,
     CriterionEvidence,
     HardConstraintFinding,
     PriorityPoints,
@@ -533,7 +534,7 @@ def test_synthetic_four_criterion_scoring_is_deterministic_and_labeled_provision
     assert first.model_dump() == second.model_dump()
     assert len(first.options) == 3
     assert first.provisional is True
-    assert first.scoring_version == "ny8-scoring-v4"
+    assert first.scoring_version == SCORING_VERSION
     assert first.ranking_mode == "four_criterion"
     assert first.default_weights.normalized_weights == first.selected_weights.normalized_weights
 

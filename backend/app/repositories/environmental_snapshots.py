@@ -9,6 +9,7 @@ from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError, PyMongoError
 
 from app.models.environmental_snapshots import (
+    AutoRefreshRetry,
     EnvironmentalSnapshot,
     SnapshotIdentity,
     SnapshotSeasonContext,
@@ -124,6 +125,33 @@ class EnvironmentalSnapshotRepository:
         except PyMongoError:
             raise SnapshotStorageUnavailable("MongoDB snapshot context update failed.") from None
 
+        return await self.find_by_identity(identity)
+
+    async def mark_auto_refresh_failure(
+        self,
+        identity: SnapshotIdentity,
+        *,
+        expected_retrieved_at: datetime,
+        retry: AutoRefreshRetry,
+    ) -> EnvironmentalSnapshot | None:
+        """Persist backoff only if this still is the snapshot that failed refresh.
+
+        A concurrent worker may replace the snapshot while an older NASA call
+        fails. Matching its exact retrieved_at keeps the late failure from
+        throttling that newer, valid snapshot. Only safe code/timestamps persist.
+        """
+
+        collection = self._document_model.get_pymongo_collection()
+        try:
+            await collection.update_one(
+                {
+                    "identity.request_key": identity.request_key,
+                    "retrieved_at": expected_retrieved_at,
+                },
+                {"$set": {"auto_refresh_retry": retry.model_dump(mode="python")}},
+            )
+        except PyMongoError:
+            raise SnapshotStorageUnavailable("MongoDB retry marker update failed.") from None
         return await self.find_by_identity(identity)
 
     async def try_acquire_request_lease(

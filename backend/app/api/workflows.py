@@ -1,39 +1,24 @@
-"""Authenticated orchestration endpoints for persisted environmental context."""
+"""Authenticated HTTP composition for saved-farm context and recommendations."""
 
 from collections.abc import Callable
-from dataclasses import dataclass
-from datetime import date
 from typing import Annotated
 
 from beanie import PydanticObjectId
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
 from pymongo.errors import PyMongoError
 
-from app.decisions.crop_evidence import (
-    ASSESSMENT_VERSION,
-    FarmAssessmentContext,
-    build_crop_evidence_option,
+from app.farms.environmental_context import FarmContextService
+from app.farms.routes import (
+    get_crop_catalog_repository,
+    get_farm_repository,
+    get_supported_location_repository,
 )
-from app.decisions.crop_profiles import CROP_LIBRARY_VERSION
-from app.decisions.rotation import (
-    MVP_CROP_CANDIDATES,
-    ROTATION_RULE_SET_VERSION,
-    CurrentPractice,
-    PlantingEventSlot,
-    RotationGenerationRequest,
-    generate_rotation_candidates,
-)
-from app.decisions.scoring import (
-    ScoringRequest,
-    score_rotation_options,
-)
-from app.farms.routes import get_farm_repository, get_supported_location_repository
 from app.indicators.environmental import EnvironmentalIndicator
 from app.integrations.nasa.power import PowerRequest
 from app.models.farms import Farm
-from app.models.rotation_results import RotationDecisionInputs
 from app.models.supported_locations import SupportedLocation
 from app.models.users import User
+from app.repositories.crop_catalog import CropCatalogRepository
 from app.repositories.environmental_snapshots import SnapshotRepositoryError
 from app.repositories.farms import FarmRepository
 from app.repositories.rotation_results import RotationResultRepository
@@ -49,13 +34,24 @@ from app.schemas.farms import FarmLocationSummary
 from app.schemas.rotation_results import RotationResultResponse
 from app.services.environmental_indicators import EnvironmentalIndicatorService
 from app.services.environmental_snapshots import EnvironmentalSnapshotService, SnapshotRetrieval
+from app.services.recommendation_workflow import (
+    CropCatalogNotReady,
+    FarmChangedDuringGeneration,
+    FarmHistoryNeedsReview,
+    create_rotation_result_for_owned_farm,
+)
 
 FARM_NOT_FOUND_DETAIL = "Farm not found."
 AUTHENTICATION_REQUIRED_DETAIL = "Authentication is required."
 CSRF_VERIFICATION_FAILED_DETAIL = "CSRF token verification failed."
+FARM_HISTORY_NEEDS_REVIEW_DETAIL = (
+    "Complete the dated crop history for this farm before requesting environmental "
+    "context or a rotation comparison."
+)
 LOCATION_UNAVAILABLE_DETAIL = "Environmental location details are temporarily unavailable."
 ENVIRONMENTAL_SERVICE_UNAVAILABLE_DETAIL = "Environmental data is temporarily unavailable."
 ROTATION_RESULT_UNAVAILABLE_DETAIL = "The rotation result could not be saved. Please retry."
+CATALOG_UNAVAILABLE_DETAIL = "The crop catalog is temporarily unavailable."
 
 _PUBLIC_ERROR_CODES = {
     "PowerTimeoutError": "NASA_TIMEOUT",
@@ -66,20 +62,15 @@ _PUBLIC_ERROR_CODES = {
     "PowerUnsupportedUnitsError": "NASA_RESPONSE_INVALID",
     "SnapshotRefreshInProgress": "NASA_RETRIEVAL_IN_PROGRESS",
     "SnapshotRepositoryError": "ENVIRONMENTAL_STORAGE_UNAVAILABLE",
+    "NASA_SERVICE_UNAVAILABLE": "NASA_UNAVAILABLE",
+    "NASA_NO_VALID_DATA": "NO_VALID_DATA",
+    "CONTEXT_PERIOD_UNSUPPORTED": "NO_VALID_DATA",
+    "NASA_PARTIAL_COVERAGE": None,
 }
 
 
-@dataclass(frozen=True, slots=True)
-class RetrievedEnvironmentalPeriod:
-    """One request's normalized snapshot outcome and derived indicators."""
-
-    request: PowerRequest
-    retrieval: SnapshotRetrieval
-    indicators: tuple[EnvironmentalIndicator, ...]
-
-
 def get_environmental_snapshot_service(request: Request) -> EnvironmentalSnapshotService:
-    """Read the shared NY-6 service created by this app's lifespan."""
+    """Use the one NY-6 service attached to this app's lifespan."""
 
     service = getattr(request.app.state, "environmental_snapshot_service", None)
     if service is None:
@@ -91,38 +82,35 @@ def get_environmental_snapshot_service(request: Request) -> EnvironmentalSnapsho
 
 
 def create_workflow_router(current_active_user: Callable[..., User]) -> APIRouter:
-    """Build farm-scoped use cases without moving feature persistence into NY-9."""
+    """Mount thin routes; feature services retain their own persistence rules."""
 
     router = APIRouter(prefix="/farms", tags=["decision-workflows"])
 
     @router.post(
         "/{farm_id}/environmental-context",
         response_model=EnvironmentalContextResponse,
-        summary="Retrieve historical NASA POWER indicators for an owned farm",
+        summary="Retrieve or refresh the saved farm's derived NASA POWER context",
         responses={
-            status.HTTP_401_UNAUTHORIZED: {"description": AUTHENTICATION_REQUIRED_DETAIL},
-            status.HTTP_403_FORBIDDEN: {"description": CSRF_VERIFICATION_FAILED_DETAIL},
-            status.HTTP_404_NOT_FOUND: {"description": FARM_NOT_FOUND_DETAIL},
-            status.HTTP_503_SERVICE_UNAVAILABLE: {
-                "description": ENVIRONMENTAL_SERVICE_UNAVAILABLE_DETAIL
-            },
+            401: {"description": AUTHENTICATION_REQUIRED_DETAIL},
+            403: {"description": CSRF_VERIFICATION_FAILED_DETAIL},
+            404: {"description": FARM_NOT_FOUND_DETAIL},
+            409: {"description": FARM_HISTORY_NEEDS_REVIEW_DETAIL},
+            503: {"description": ENVIRONMENTAL_SERVICE_UNAVAILABLE_DETAIL},
         },
     )
     async def environmental_context(
         farm_id: PydanticObjectId,
-        request_body: EnvironmentalContextRequest,
         user: Annotated[User, Depends(current_active_user)],
         farm_repository: Annotated[FarmRepository, Depends(get_farm_repository)],
         location_repository: Annotated[
-            SupportedLocationRepository,
-            Depends(get_supported_location_repository),
+            SupportedLocationRepository, Depends(get_supported_location_repository)
         ],
         snapshot_service: Annotated[
-            EnvironmentalSnapshotService,
-            Depends(get_environmental_snapshot_service),
+            EnvironmentalSnapshotService, Depends(get_environmental_snapshot_service)
         ],
+        request_body: Annotated[EnvironmentalContextRequest | None, Body()] = None,
     ) -> EnvironmentalContextResponse:
-        """Authorize the farm before resolving private coordinates or reading snapshots."""
+        """Authorize before resolving the private place point or NY-6 identity."""
 
         farm, location = await _load_owned_farm_and_location(
             farm_id=farm_id,
@@ -130,49 +118,66 @@ def create_workflow_router(current_active_user: Callable[..., User]) -> APIRoute
             farm_repository=farm_repository,
             location_repository=location_repository,
         )
-        period = await _retrieve_environmental_period(
+        if (
+            farm.schema_version != "farm-v2"
+            or farm.history_status != "complete"
+            or farm.environmental_context is None
+            or farm.environmental_context.period is None
+        ):
+            raise HTTPException(status_code=409, detail=FARM_HISTORY_NEEDS_REVIEW_DETAIL)
+        original_period = farm.environmental_context.period
+        original_revision = farm.revision
+        farm, retrieval = await FarmContextService().retrieve_for_owned_farm(
+            farm=farm,
             location=location,
-            start_date=request_body.start_date,
-            end_date=request_body.end_date,
             snapshot_service=snapshot_service,
-            force_refresh=request_body.force_refresh,
+            farm_repository=farm_repository,
+            force_refresh=(request_body.force_refresh if request_body else False),
         )
-
-        return _environmental_context_response(farm, location, period)
+        # A concurrent Farm edit may have changed the period while NASA was in
+        # flight. Never present old data as the new profile's context.
+        if (
+            farm.revision != original_revision
+            or farm.location_key != location.location_key
+            or farm.environmental_context is None
+            or farm.environmental_context.period != original_period
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="The farm changed while environmental data was loading. Please retry.",
+            )
+        return _environmental_context_response(farm, location, retrieval)
 
     @router.post(
         "/{farm_id}/rotation-recommendations",
         response_model=RotationResultResponse,
         status_code=status.HTTP_201_CREATED,
-        summary="Generate and save a farm-specific rotation comparison",
+        summary="Generate and save a provisional rotation assessment for an owned farm",
         responses={
-            status.HTTP_401_UNAUTHORIZED: {"description": AUTHENTICATION_REQUIRED_DETAIL},
-            status.HTTP_403_FORBIDDEN: {"description": CSRF_VERIFICATION_FAILED_DETAIL},
-            status.HTTP_404_NOT_FOUND: {"description": FARM_NOT_FOUND_DETAIL},
-            status.HTTP_503_SERVICE_UNAVAILABLE: {
-                "description": ROTATION_RESULT_UNAVAILABLE_DETAIL
-            },
+            401: {"description": AUTHENTICATION_REQUIRED_DETAIL},
+            403: {"description": CSRF_VERIFICATION_FAILED_DETAIL},
+            404: {"description": FARM_NOT_FOUND_DETAIL},
+            409: {"description": FARM_HISTORY_NEEDS_REVIEW_DETAIL},
+            503: {"description": ROTATION_RESULT_UNAVAILABLE_DETAIL},
         },
     )
     async def generate_rotation_recommendation(
         farm_id: PydanticObjectId,
-        request_body: RotationRecommendationRequest,
         user: Annotated[User, Depends(current_active_user)],
         farm_repository: Annotated[FarmRepository, Depends(get_farm_repository)],
         location_repository: Annotated[
-            SupportedLocationRepository,
-            Depends(get_supported_location_repository),
+            SupportedLocationRepository, Depends(get_supported_location_repository)
         ],
+        catalog_repository: Annotated[CropCatalogRepository, Depends(get_crop_catalog_repository)],
         snapshot_service: Annotated[
-            EnvironmentalSnapshotService,
-            Depends(get_environmental_snapshot_service),
+            EnvironmentalSnapshotService, Depends(get_environmental_snapshot_service)
         ],
         result_repository: Annotated[
-            RotationResultRepository,
-            Depends(get_rotation_result_repository),
+            RotationResultRepository, Depends(get_rotation_result_repository)
         ],
+        request_body: Annotated[RotationRecommendationRequest | None, Body()] = None,
     ) -> RotationResultResponse:
-        """Analyze farmer-reported past seasons, score transparently, and persist the result."""
+        """Use saved history/context/catalog; only priority points may be overridden."""
 
         farm, location = await _load_owned_farm_and_location(
             farm_id=farm_id,
@@ -180,115 +185,31 @@ def create_workflow_router(current_active_user: Callable[..., User]) -> APIRoute
             farm_repository=farm_repository,
             location_repository=location_repository,
         )
-
-        event_slots = tuple(
-            PlantingEventSlot(
-                event_id=f"future-recommendation-season-{order}",
-                order=order,
-                plot_id=request_body.plot_reference,
-                season_label=slot.season_label,
-                window_start=slot.window_start,
-                window_end=slot.window_end,
-                # User-selected future dates are not a source-reviewed crop calendar.
-                calendar_status="unknown",
-            )
-            for order, slot in enumerate(request_body.recommendation_seasons, start=1)
-        )
-        environmental_periods: list[RetrievedEnvironmentalPeriod] = []
-        for season in request_body.historical_seasons:
-            environmental_periods.append(
-                await _retrieve_environmental_period(
-                    location=location,
-                    start_date=season.analysis_start_date,
-                    end_date=season.analysis_end_date,
-                    season_label=season.season_label,
-                    crop=season.planted_crop,
-                    snapshot_service=snapshot_service,
-                    force_refresh=request_body.force_refresh,
-                )
-            )
-
-        reported_crops = tuple(season.planted_crop for season in request_body.historical_seasons)
-        prior_crop_history = (reported_crops[-1],) if reported_crops[-1] is not None else None
-        current_practice = None
-        if all(crop_id is not None for crop_id in reported_crops):
-            current_practice = CurrentPractice(
-                crop_ids=tuple(crop_id for crop_id in reported_crops if crop_id is not None),
-                source_reference="Farmer-reported past seasons supplied to NY-9.",
-            )
-
-        generation_request = RotationGenerationRequest(
-            planting_events=event_slots,
-            candidate_crops=MVP_CROP_CANDIDATES,
-            sequence_evidence_status="provisional",
-            sequence_evidence_source=(
-                "Farmer-selected future recommendation slots; calendar continuity is unvalidated."
-            ),
-            prior_crop_history=prior_crop_history,
-            prior_history_source=(
-                "Farmer-reported past season history supplied to NY-9."
-                if prior_crop_history is not None
-                else None
-            ),
-            current_practice=current_practice,
-        )
-        generated = generate_rotation_candidates(generation_request)
-        all_indicators = tuple(
-            indicator for period in environmental_periods for indicator in period.indicators
-        )
-        environmental_context_ready = all(
-            sum(_is_usable_indicator(indicator) for indicator in period.indicators) >= 2
-            for period in environmental_periods
-        )
-        farm_assessment_context = FarmAssessmentContext(
-            location_key=farm.location_key,
-            soil_texture=farm.soil_texture,
-            irrigation_access=farm.irrigation_access,
-        )
-        scoring_request = ScoringRequest(
-            options=tuple(
-                build_crop_evidence_option(
-                    candidate,
-                    all_indicators,
-                    farm_context=farm_assessment_context,
-                    prior_crop_history=prior_crop_history,
-                    environmental_context_ready=environmental_context_ready,
-                )
-                for candidate in generated.candidates
-            ),
-            farmer_priorities=farm.farmer_priorities,
-        )
-        scoring_result = score_rotation_options(scoring_request)
-        snapshot_ids = tuple(
-            dict.fromkeys(
-                period.retrieval.snapshot.id
-                for period in environmental_periods
-                if period.retrieval.snapshot is not None
-                and period.retrieval.snapshot.id is not None
-            )
-        )
-        decision_inputs = RotationDecisionInputs(
-            generation_request=generation_request,
-            scoring_request=scoring_request,
-            environmental_snapshot_ids=snapshot_ids,
-            crop_library_version=CROP_LIBRARY_VERSION,
-            assessment_version=ASSESSMENT_VERSION,
-            rule_set_version=ROTATION_RULE_SET_VERSION,
-        )
         try:
-            saved = await result_repository.create_for_farm(
-                owner_user_id=user.id,
+            result = await create_rotation_result_for_owned_farm(
                 farm=farm,
-                decision_inputs=decision_inputs,
-                candidate_generation=generated,
-                scoring_result=scoring_result,
+                location=location,
+                owner_user_id=user.id,
+                farm_repository=farm_repository,
+                catalog_repository=catalog_repository,
+                snapshot_service=snapshot_service,
+                result_repository=result_repository,
+                priority_adjustment=(request_body.priority_adjustment if request_body else None),
             )
-        except (PyMongoError, ValueError):
+        except FarmHistoryNeedsReview:
+            raise HTTPException(status_code=409, detail=FARM_HISTORY_NEEDS_REVIEW_DETAIL) from None
+        except FarmChangedDuringGeneration:
             raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=ROTATION_RESULT_UNAVAILABLE_DETAIL,
+                status_code=409,
+                detail="The farm changed while this assessment was running. Please retry.",
             ) from None
-        return RotationResultResponse.from_document(saved)
+        except CropCatalogNotReady:
+            raise HTTPException(status_code=503, detail=CATALOG_UNAVAILABLE_DETAIL) from None
+        except (PyMongoError, SnapshotRepositoryError):
+            raise HTTPException(
+                status_code=503, detail=ROTATION_RESULT_UNAVAILABLE_DETAIL
+            ) from None
+        return RotationResultResponse.from_document(result)
 
     return router
 
@@ -300,120 +221,90 @@ async def _load_owned_farm_and_location(
     farm_repository: FarmRepository,
     location_repository: SupportedLocationRepository,
 ) -> tuple[Farm, SupportedLocation]:
-    """Apply ownership before any location point or environmental lookup."""
+    """The owner filter runs before any private location or environmental lookup."""
 
     try:
-        farm = await farm_repository.get_by_owner(
-            farm_id=farm_id,
-            owner_user_id=owner_user_id,
-        )
+        farm = await farm_repository.get_by_owner(farm_id=farm_id, owner_user_id=owner_user_id)
     except PyMongoError:
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=ENVIRONMENTAL_SERVICE_UNAVAILABLE_DETAIL,
+            status_code=503, detail=ENVIRONMENTAL_SERVICE_UNAVAILABLE_DETAIL
         ) from None
     if farm is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=FARM_NOT_FOUND_DETAIL)
-
+        raise HTTPException(status_code=404, detail=FARM_NOT_FOUND_DETAIL)
     try:
         location = await location_repository.get_by_key(farm.location_key)
     except PyMongoError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=LOCATION_UNAVAILABLE_DETAIL,
-        ) from None
+        raise HTTPException(status_code=503, detail=LOCATION_UNAVAILABLE_DETAIL) from None
     if location is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=LOCATION_UNAVAILABLE_DETAIL,
-        )
+        raise HTTPException(status_code=503, detail=LOCATION_UNAVAILABLE_DETAIL)
     return farm, location
-
-
-async def _retrieve_environmental_period(
-    *,
-    location: SupportedLocation,
-    start_date: date,
-    end_date: date,
-    snapshot_service: EnvironmentalSnapshotService,
-    force_refresh: bool,
-    season_label: str | None = None,
-    crop: str | None = None,
-) -> RetrievedEnvironmentalPeriod:
-    """Use NY-6's snapshot boundary and NY-7's pure indicator service together."""
-
-    power_request = PowerRequest(
-        latitude=location.coordinates.latitude,
-        longitude=location.coordinates.longitude,
-        start_date=start_date,
-        end_date=end_date,
-        season_label=season_label,
-        crop=crop,
-    )
-    try:
-        retrieval = await snapshot_service.retrieve(
-            power_request,
-            force_refresh=force_refresh,
-        )
-    except (PyMongoError, SnapshotRepositoryError):
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=ENVIRONMENTAL_SERVICE_UNAVAILABLE_DETAIL,
-        ) from None
-    indicators = EnvironmentalIndicatorService().calculate(retrieval, power_request)
-    return RetrievedEnvironmentalPeriod(
-        request=power_request,
-        retrieval=retrieval,
-        indicators=indicators,
-    )
 
 
 def _environmental_context_response(
     farm: Farm,
     location: SupportedLocation,
-    period: RetrievedEnvironmentalPeriod,
+    retrieval: SnapshotRetrieval | None,
 ) -> EnvironmentalContextResponse:
-    """Serialize only public location data and stable service status values."""
+    """Serialize only public location labels and stable NASA result metadata."""
 
-    retrieval = period.retrieval
-    error_code = _public_environmental_error_code(retrieval.error_code)
-    if retrieval.data_status == "unavailable" and error_code is None:
+    context = farm.environmental_context
+    if context is None or context.period is None or farm.id is None:
+        raise ValueError("A complete Farm context is required for serialization")
+    period = context.period
+    indicators: tuple[EnvironmentalIndicator, ...] = ()
+    if retrieval is not None:
+        power_request = PowerRequest(
+            latitude=location.coordinates.latitude,
+            longitude=location.coordinates.longitude,
+            start_date=period.start_date,
+            end_date=period.end_date,
+        )
+        indicators = EnvironmentalIndicatorService().calculate(retrieval, power_request)
+    snapshot_id = (
+        str(retrieval.snapshot.id)
+        if retrieval is not None and retrieval.snapshot is not None and retrieval.snapshot.id
+        else str(context.snapshot_id)
+        if context.snapshot_id is not None
+        else None
+    )
+    error_code = _public_environmental_error_code(
+        retrieval.error_code if retrieval is not None else context.warning_code
+    )
+    if retrieval is not None and retrieval.data_status == "unavailable" and error_code is None:
         error_code = "NO_VALID_DATA"
     return EnvironmentalContextResponse(
         farm_id=str(farm.id),
-        location=FarmLocationSummary(
-            location_key=farm.location_key,
-            label=location.label,
-        ),
+        location=FarmLocationSummary(location_key=farm.location_key, label=location.label),
         period=EnvironmentalPeriodResponse(
-            start_date=period.request.start_date,
-            end_date=period.request.end_date,
+            start_date=period.start_date,
+            end_date=period.end_date,
+            policy_version=period.policy_version,
         ),
-        data_status=retrieval.data_status,
-        cache_action=retrieval.cache_action,
-        freshness_status=retrieval.freshness.status,
-        freshness_age_seconds=retrieval.freshness.age_seconds,
-        freshness_explanation=retrieval.freshness.reason,
-        refresh_attempted=retrieval.refresh_attempted,
+        context_status=(
+            context.status if context.status in {"pending", "ready", "partial"} else "unavailable"
+        ),
+        snapshot_id=snapshot_id,
+        data_status=retrieval.data_status if retrieval is not None else "unavailable",
+        cache_action=retrieval.cache_action if retrieval is not None else "unavailable",
+        freshness_status=(retrieval.freshness.status if retrieval is not None else "unknown"),
+        freshness_age_seconds=(retrieval.freshness.age_seconds if retrieval is not None else None),
+        freshness_explanation=(
+            retrieval.freshness.reason
+            if retrieval is not None
+            else "No usable NASA POWER snapshot is linked to this farm yet."
+        ),
+        refresh_attempted=retrieval.refresh_attempted if retrieval is not None else False,
         error_code=error_code,
-        indicators=period.indicators,
-        warnings=retrieval.warnings,
-    )
-
-
-def _is_usable_indicator(indicator: EnvironmentalIndicator) -> bool:
-    """Count a measured complete/partial value, never an unavailable value, per NY-13."""
-
-    return (
-        indicator.value is not None
-        and indicator.status != "unavailable"
-        and indicator.data_status != "unavailable"
+        indicators=indicators,
+        warnings=retrieval.warnings if retrieval is not None else (),
     )
 
 
 def _public_environmental_error_code(error_code: str | None) -> str | None:
-    """Translate internal typed outcomes to stable, client-safe values."""
-
     if error_code is None:
         return None
-    return _PUBLIC_ERROR_CODES.get(error_code, "NASA_UPSTREAM_ERROR")
+    if error_code in _PUBLIC_ERROR_CODES:
+        return _PUBLIC_ERROR_CODES[error_code]
+    if error_code in _PUBLIC_ERROR_CODES.values():
+        return error_code
+    return "NASA_UPSTREAM_ERROR"

@@ -13,7 +13,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-ROTATION_GENERATOR_VERSION = "ny8-candidates-v1"
+ROTATION_GENERATOR_VERSION = "ny40-candidates-v2"
 ROTATION_RULE_SET_VERSION = "ny8-rules-v1"
 
 CropSuitabilityStatus = Literal["unknown", "provisional", "locally_validated"]
@@ -59,7 +59,7 @@ MVP_CROP_CANDIDATES = (
 
 
 class PlantingEventSlot(BaseModel):
-    """One ordered planting event and its sourced calendar/data window."""
+    """One future event; unknown timing stays null until evidence supports dates."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -67,8 +67,17 @@ class PlantingEventSlot(BaseModel):
     order: int = Field(ge=1, le=3)
     plot_id: str = Field(min_length=1)
     season_label: str = Field(min_length=1)
-    window_start: date
-    window_end: date
+    window_start: date | None = None
+    window_end: date | None = None
+    harvest_start: date | None = None
+    harvest_end: date | None = None
+    maturity_days_min: int | None = Field(default=None, ge=1)
+    maturity_days_max: int | None = Field(default=None, ge=1)
+    variety_key: str | None = None
+    production_system_key: str | None = None
+    profile_revision_id: str | None = None
+    calendar_version_id: str | None = None
+    review_reasons: tuple[str, ...] = ()
     calendar_status: CalendarStatus = "unknown"
     calendar_source: str | None = None
     calendar_source_version: str | None = None
@@ -77,8 +86,28 @@ class PlantingEventSlot(BaseModel):
     def validate_window(self) -> PlantingEventSlot:
         """Reject invalid date ranges and unverifiable validated calendars."""
 
-        if self.window_end < self.window_start:
+        if (self.window_start is None) != (self.window_end is None):
+            raise ValueError("A planting window needs both start and end dates")
+        if (
+            self.window_start is not None
+            and self.window_end is not None
+            and self.window_end < self.window_start
+        ):
             raise ValueError("Planting event window end must be on or after its start")
+        if (self.harvest_start is None) != (self.harvest_end is None):
+            raise ValueError("A harvest window needs both start and end dates")
+        if (
+            self.harvest_start is not None
+            and self.harvest_end is not None
+            and self.harvest_end < self.harvest_start
+        ):
+            raise ValueError("Harvest window end must be on or after its start")
+        if (
+            self.maturity_days_min is not None
+            and self.maturity_days_max is not None
+            and self.maturity_days_max < self.maturity_days_min
+        ):
+            raise ValueError("Maturity day range must be ordered")
         if self.calendar_status != "unknown" and not (
             self.calendar_source and self.calendar_source_version
         ):
@@ -101,6 +130,7 @@ class RotationGenerationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     planting_events: tuple[PlantingEventSlot, ...]
+    as_of_date: date | None = None
     candidate_crops: tuple[CropCandidate, ...] = MVP_CROP_CANDIDATES
     sequence_evidence_status: SequenceEvidenceStatus = "unknown"
     sequence_evidence_source: str | None = None
@@ -131,7 +161,11 @@ class RotationGenerationRequest(BaseModel):
         for index in range(1, len(self.planting_events)):
             previous = self.planting_events[index - 1]
             following = self.planting_events[index]
-            if following.window_start <= previous.window_end:
+            if (
+                following.window_start is not None
+                and previous.window_end is not None
+                and following.window_start <= previous.window_end
+            ):
                 raise ValueError("Planting event windows must be chronological and non-overlapping")
 
         crop_ids = tuple(crop.crop_id for crop in self.candidate_crops)

@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { Link, Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/auth-context';
 
 export default function Layout() {
-  const { user, logout } = useAuth();
+  const { user, logout, error } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [logoutRequested, setLogoutRequested] = useState(false);
@@ -11,10 +11,14 @@ export default function Layout() {
   const isAuthPage = location.pathname === '/login' || location.pathname === '/signup';
   const isLoggingOut = logoutRequested && !user && !isAuthPage;
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     setLogoutRequested(true);
-    logout();
-    navigate('/login', { replace: true });
+    try {
+      await logout();
+      navigate('/login', { replace: true });
+    } catch {
+      setLogoutRequested(false);
+    }
   };
 
   return (
@@ -66,6 +70,7 @@ export default function Layout() {
       )}
       
       <main style={{ flex: 1, padding: isAuthPage ? 0 : '2rem' }}>
+        {error && !isAuthPage && <p className="alert alert-error" role="alert">{error}</p>}
         <Outlet />
       </main>
     </div>

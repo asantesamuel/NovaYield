@@ -1,57 +1,47 @@
-import { createContext, useContext, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-
-// Define the shape of our user
-export interface User {
-  id: string;
-  email: string;
-}
-
-interface AuthContextType {
-  user: User | null;
-  isLoading: boolean;
-  error: string | null;
-  login: (email: string, password: string) => Promise<void>;
-  signup: (email: string, password: string) => Promise<void>;
-  logout: () => void;
-}
-
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+import { ApiError, SESSION_EXPIRED_EVENT, api } from '../api/client';
+import { AuthContext, type User } from './auth-context';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isInitialized, setIsInitialized] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // --- MOCK API CALLS (Replace with real api.post later) ---
-  const mockApiCall = (email: string, password: string) => {
-    return new Promise<void>((resolve, reject) => {
-      setTimeout(() => {
-        // Mock validation: fail if password is too short
-        if (password.length < 6) {
-          reject(new Error('Password must be at least 6 characters.'));
-        } 
-        // Mock duplicate email
-        else if (email === 'test@novayield.com' && password === 'password') {
-          reject(new Error('Email already in use.'));
-        } 
-        // Success
-        else {
-          resolve();
+  useEffect(() => {
+    let active = true;
+    api.get<User>('/auth/me')
+      .then((currentUser) => { if (active) setUser(currentUser); })
+      .catch((cause: unknown) => {
+        // Missing or expired sessions are normal on a public login page.
+        if (active && cause instanceof ApiError && cause.status !== 401) {
+          setError(cause.message);
         }
-      }, 800); // Simulate network delay
-    });
-  };
+      })
+      .finally(() => { if (active) setIsInitialized(true); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    const onSessionExpired = () => {
+      setUser(null);
+      setError('Your session expired. Please log in again.');
+    };
+    window.addEventListener(SESSION_EXPIRED_EVENT, onSessionExpired);
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onSessionExpired);
+  }, []);
 
   const login = async (email: string, password: string) => {
     setIsLoading(true);
     setError(null);
     try {
-      await mockApiCall(email, password);
-      setUser({ id: '1', email });
-    } catch (err: any) {
-      setError(err.message);
-      throw err;
+      await api.post<void>('/auth/login', { email, password });
+      setUser(await api.get<User>('/auth/me'));
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : 'Login failed.';
+      setError(message);
+      throw cause;
     } finally {
       setIsLoading(false);
     }
@@ -61,30 +51,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
     setError(null);
     try {
-      await mockApiCall(email, password);
-      setUser({ id: '2', email });
-    } catch (err: any) {
-      setError(err.message);
-      throw err;
+      await api.post<User>('/auth/register', { email, password });
+      await api.post<void>('/auth/login', { email, password });
+      setUser(await api.get<User>('/auth/me'));
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : 'Registration failed.';
+      setError(message);
+      throw cause;
     } finally {
       setIsLoading(false);
     }
   };
 
-  const logout = () => {
-    setUser(null);
+  const logout = async () => {
     setError(null);
+    try {
+      await api.post<void>('/auth/logout');
+      setUser(null);
+    } catch (cause) {
+      if (cause instanceof ApiError && cause.status === 401) {
+        setUser(null);
+        return;
+      }
+      const message = cause instanceof Error ? cause.message : 'Logout failed.';
+      setError(message);
+      throw cause;
+    }
   };
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, error, login, signup, logout }}>
+    <AuthContext.Provider value={{ user, isLoading, isInitialized, error, login, signup, logout }}>
       {children}
     </AuthContext.Provider>
   );
-}
-
-export function useAuth() {
-  const context = useContext(AuthContext);
-  if (!context) throw new Error('useAuth must be used within an AuthProvider');
-  return context;
 }

@@ -9,7 +9,15 @@ from datetime import date, datetime
 from typing import Any, Literal
 
 from beanie import Document
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationInfo, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 from pymongo import ASCENDING, IndexModel
 
 from app.database.registry import register_document_model
@@ -77,6 +85,22 @@ class SnapshotSeasonContext(BaseModel):
     season_label: str | None = None
     calendar_source_version: str | None = None
     crop: str | None = None
+
+
+class AutoRefreshRetry(BaseModel):
+    """Persist only safe retry scheduling metadata, never an upstream error body."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    failed_at: datetime
+    retry_after: datetime
+    error_code: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
+
+    @model_validator(mode="after")
+    def retry_follows_failure(self) -> AutoRefreshRetry:
+        if self.retry_after <= self.failed_at:
+            raise ValueError("Automatic refresh retry must follow the failed attempt")
+        return self
 
 
 def build_snapshot_identity(
@@ -148,6 +172,9 @@ class EnvironmentalSnapshot(Document):
     provider_metadata: PowerProviderMetadata
     parameters: dict[PowerParameterCode, PowerParameterSeries]
     request_contexts: list[SnapshotSeasonContext] = Field(default_factory=list)
+    # A failed automatic refresh does not invalidate measured cached values.
+    # The marker survives process restarts and is cleared by a successful replace.
+    auto_refresh_retry: AutoRefreshRetry | None = None
 
     @classmethod
     def from_power_result(
@@ -191,6 +218,9 @@ def snapshot_fields_from_power_result(
         "retrieved_at": result.retrieved_at,
         "provider_metadata": result.provider_metadata,
         "parameters": result.parameters,
+        # A successful provider response clears any prior automatic retry hold
+        # when the repository replaces the old snapshot document.
+        "auto_refresh_retry": None,
         "request_contexts": [
             SnapshotSeasonContext(
                 season_label=result.date_window.season_label,

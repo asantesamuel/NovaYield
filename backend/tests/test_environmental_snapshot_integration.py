@@ -121,7 +121,8 @@ def test_snapshot_is_persisted_in_mongodb_and_reused_without_provider_call() -> 
 
             documents = connection.database[SNAPSHOT_COLLECTION_NAME]
             assert await documents.count_documents({}) == 1
-            indexes = await documents.list_indexes().to_list(length=None)
+            index_cursor = await documents.list_indexes()
+            indexes = await index_cursor.to_list(length=None)
             request_key_index = next(
                 index for index in indexes if index["name"] == REQUEST_KEY_INDEX_NAME
             )

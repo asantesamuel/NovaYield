@@ -1,13 +1,18 @@
-// frontend/src/api/client.ts
+/** Cookie-authenticated API transport shared by the frontend feature modules. */
 
-// Fallback to localhost if VITE_API_BASE_URL isn't set, per the README
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
+import { API_BASE_URL } from '../lib/api';
+const CSRF_COOKIE_NAME = 'nova_yield_csrf';
+export const SESSION_EXPIRED_EVENT = 'nova-yield:session-expired';
 
 export class ApiError extends Error {
-  status: number;
-  code?: string;
+  readonly status: number;
+  readonly code?: string;
 
-  constructor(message: string, status: number, code?: string) {
+  constructor(
+    message: string,
+    status: number,
+    code?: string,
+  ) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
@@ -15,59 +20,119 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  const url = `${API_BASE_URL}${endpoint}`;
-  
-  const headers = new Headers(options.headers || {});
-  if (!headers.has('Content-Type') && !(options.body instanceof FormData)) {
-    headers.set('Content-Type', 'application/json');
-  }
+function readCookie(name: string): string | null {
+  const prefix = `${name}=`;
+  const value = document.cookie.split('; ').find((part) => part.startsWith(prefix));
+  return value ? decodeURIComponent(value.slice(prefix.length)) : null;
+}
 
-  const config: RequestInit = {
-    ...options,
-    headers,
-    credentials: 'include', // Essential for cookie-based auth later
-  };
+let csrfBootstrap: Promise<string> | null = null;
+
+async function getCsrfToken(): Promise<string> {
+  const existing = readCookie(CSRF_COOKIE_NAME);
+  if (existing) return existing;
+
+  // A safe GET lets starlette-csrf set a readable, signed cookie. Share an
+  // in-flight request so simultaneous mutations do not bootstrap repeatedly.
+  csrfBootstrap ??= (async () => {
+    let response: Response;
+    try {
+      response = await fetch(`${API_BASE_URL}/auth/csrf`, { credentials: 'include' });
+    } catch {
+      throw new ApiError('Could not connect to NovaYield. Please retry.', 503, 'NETWORK_ERROR');
+    }
+    if (!response.ok) {
+      throw new ApiError('Could not prepare a secure request. Please retry.', response.status);
+    }
+    const token = readCookie(CSRF_COOKIE_NAME);
+    if (!token) {
+      throw new ApiError(
+        'Could not read the security cookie. Use the same site for the frontend and API.',
+        403,
+        'CSRF_COOKIE_UNAVAILABLE',
+      );
+    }
+    return token;
+  })();
 
   try {
-    const response = await fetch(url, config);
-    
-    // Check if response is JSON before parsing
-    const contentType = response.headers.get('content-type');
-    const isJson = contentType && contentType.includes('application/json');
-    const data = isJson ? await response.json() : null;
-
-    if (!response.ok) {
-      // FastAPI standard error shape is usually { detail: "..." }
-      const errorMessage = data?.detail || data?.message || response.statusText || 'An unknown error occurred';
-      const errorCode = data?.code || data?.error_code;
-      
-      throw new ApiError(errorMessage, response.status, errorCode);
-    }
-
-    return data as T;
-  } catch (error) {
-    if (error instanceof ApiError) throw error;
-    
-    // Handle network failures (e.g., backend is down)
-    if (error instanceof TypeError && error.message === 'Failed to fetch') {
-      throw new ApiError('Network error: Could not connect to the server.', 503, 'NETWORK_ERROR');
-    }
-    
-    throw new ApiError('An unexpected error occurred.', 500, 'UNKNOWN_ERROR');
+    return await csrfBootstrap;
+  } finally {
+    csrfBootstrap = null;
   }
 }
 
+function errorMessage(data: unknown, fallback: string): string {
+  if (!data || typeof data !== 'object') return fallback;
+  const record = data as Record<string, unknown>;
+  if (typeof record.detail === 'string') return record.detail;
+  if (typeof record.message === 'string') return record.message;
+  if (Array.isArray(record.detail)) {
+    const messages = record.detail
+      .filter((item): item is Record<string, unknown> => !!item && typeof item === 'object')
+      .map((item) => {
+        const field = Array.isArray(item.loc) ? item.loc.at(-1) : null;
+        const message = typeof item.msg === 'string' ? item.msg : 'Invalid value';
+        return typeof field === 'string' ? `${field}: ${message}` : message;
+      });
+    if (messages.length) return messages.join('; ');
+  }
+  return fallback;
+}
+
+async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  const headers = new Headers(options.headers);
+  if (options.body !== undefined && !(options.body instanceof FormData)) {
+    headers.set('Content-Type', 'application/json');
+  }
+  const method = (options.method || 'GET').toUpperCase();
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+    headers.set('X-CSRF-Token', await getCsrfToken());
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      ...options,
+      headers,
+      credentials: 'include',
+    });
+  } catch {
+    throw new ApiError('Could not connect to NovaYield. Please retry.', 503, 'NETWORK_ERROR');
+  }
+
+  const data = response.headers.get('content-type')?.includes('application/json')
+    ? await response.json() as unknown
+    : undefined;
+  if (!response.ok) {
+    if (response.status === 401 && !endpoint.startsWith('/auth/')) {
+      window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+    }
+    const code = data && typeof data === 'object'
+      ? (data as Record<string, unknown>).code
+      : undefined;
+    throw new ApiError(
+      errorMessage(data, response.statusText || 'The request failed.'),
+      response.status,
+      typeof code === 'string' ? code : undefined,
+    );
+  }
+  return data as T;
+}
+
 export const api = {
-  get: <T>(endpoint: string, options?: RequestInit) => 
-    request<T>(endpoint, { ...options, method: 'GET' }),
-    
-  post: <T>(endpoint: string, body: unknown, options?: RequestInit) => 
-    request<T>(endpoint, { ...options, method: 'POST', body: JSON.stringify(body) }),
-    
-  put: <T>(endpoint: string, body: unknown, options?: RequestInit) => 
-    request<T>(endpoint, { ...options, method: 'PUT', body: JSON.stringify(body) }),
-    
-  delete: <T>(endpoint: string, options?: RequestInit) => 
-    request<T>(endpoint, { ...options, method: 'DELETE' }),
+  get: <T>(endpoint: string) => request<T>(endpoint),
+  post: <T>(endpoint: string, body?: unknown) => request<T>(endpoint, {
+    method: 'POST',
+    body: body === undefined ? undefined : JSON.stringify(body),
+  }),
+  patch: <T>(endpoint: string, body: unknown) => request<T>(endpoint, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  }),
+  put: <T>(endpoint: string, body: unknown) => request<T>(endpoint, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  }),
+  delete: <T>(endpoint: string) => request<T>(endpoint, { method: 'DELETE' }),
 };

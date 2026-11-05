@@ -25,9 +25,15 @@ from app.schemas.farms import (
 
 
 def valid_profile() -> dict[str, object]:
-    """Return a mechanics-only profile using the seeded Ejura catalog key."""
+    """Return an explicit unknown-history draft using seeded catalog keys."""
 
-    return {"name": "North field", "location_key": "ejura"}
+    return {
+        "name": "North field",
+        "location_key": "ejura",
+        "soil_texture_key": "unknown",
+        "irrigation_access_key": "unknown",
+        "history_status": "unknown",
+    }
 
 
 def test_farm_document_registers_and_declares_owner_index() -> None:
@@ -88,10 +94,10 @@ def test_create_keeps_only_supported_farm_inputs_and_preserves_unknowns() -> Non
     profile = FarmCreate.model_validate(valid_profile())
 
     assert profile.farmer_priorities is None
-    assert profile.soil_texture is None
-    assert profile.irrigation_access is None
-    assert profile.previous_crops is None
-    assert profile.current_practice is None
+    assert profile.soil_texture_key == "unknown"
+    assert profile.irrigation_access_key == "unknown"
+    assert profile.crop_history == []
+    assert profile.history_status == "unknown"
 
 
 def test_create_trims_profile_fields_and_accepts_only_a_catalog_key() -> None:
@@ -100,15 +106,23 @@ def test_create_trims_profile_fields_and_accepts_only_a_catalog_key() -> None:
             **valid_profile(),
             "name": "  North field  ",
             "location_key": "  ejura  ",
-            "soil_texture": "  sandy loam  ",
-            "previous_crops": ["  maize  ", "cowpea"],
+            "soil_texture_key": "  loamy  ",
+            "history_status": "complete",
+            "crop_history": [
+                {
+                    "crop_key": "  maize  ",
+                    "sequence_order": 1,
+                    "start_date": "2024-03-15",
+                    "end_date": "2024-07-15",
+                }
+            ],
         }
     )
 
     assert profile.name == "North field"
     assert profile.location_key == "ejura"
-    assert profile.soil_texture == "sandy loam"
-    assert profile.previous_crops == ["maize", "cowpea"]
+    assert profile.soil_texture_key == "loamy"
+    assert profile.crop_history[0].crop_key == "maize"
 
     with_priorities = FarmCreate.model_validate(
         {
@@ -159,8 +173,8 @@ def test_update_requires_changes_and_cannot_clear_required_fields() -> None:
     )
     assert priorities.farmer_priorities.water_resilience == 40
 
-    clear_optional_field = FarmUpdate.model_validate({"soil_texture": None})
-    assert clear_optional_field.model_dump(exclude_unset=True) == {"soil_texture": None}
+    clear_optional_field = FarmUpdate.model_validate({"earliest_available_date": None})
+    assert clear_optional_field.model_dump(exclude_unset=True) == {"earliest_available_date": None}
 
 
 def test_public_location_and_farm_responses_never_include_coordinates_or_owner() -> None:
@@ -187,3 +201,25 @@ def test_public_location_and_farm_responses_never_include_coordinates_or_owner()
     assert "latitude" not in str(farm_response)
     assert "longitude" not in str(farm_response)
     assert farm_response["farmer_priorities"]["water_resilience"] == 25
+    assert farm_response["history_status"] == "legacy_unresolved"
+    assert "current_practice" not in farm_response
+
+
+def test_legacy_text_stays_internal_after_owner_resolves_the_profile() -> None:
+    farm = Farm.model_construct(
+        id=PydanticObjectId(),
+        owner_user_id=PydanticObjectId(),
+        name="Old plot",
+        location_key="ejura",
+        previous_crops=["maize"],
+        soil_texture="loam",
+        history_status="legacy_unresolved",
+    )
+
+    unresolved = FarmResponse.from_document(farm, location_label="Ejura")
+    assert unresolved.legacy_unresolved_inputs is not None
+    assert unresolved.legacy_unresolved_inputs.previous_crops == ["maize"]
+
+    resolved = farm.model_copy(update={"schema_version": "farm-v2", "history_status": "complete"})
+    public_resolved = FarmResponse.from_document(resolved, location_label="Ejura")
+    assert public_resolved.legacy_unresolved_inputs is None

@@ -27,6 +27,8 @@ def test_create_app_composes_versioned_feature_routes_without_global_router_stat
     second_paths = second_app.openapi()["paths"]
 
     expected_paths = {
+        "/api/v1/crops",
+        "/api/v1/farms/reference-options",
         "/api/v1/farms/locations",
         "/api/v1/farms",
         "/api/v1/farms/{farm_id}",
@@ -47,37 +49,40 @@ def test_create_app_composes_versioned_feature_routes_without_global_router_stat
     assert set(first_paths["/api/v1/farms/{farm_id}/rotation-recommendations"]) == {"post"}
 
     environmental_operation = first_paths["/api/v1/farms/{farm_id}/environmental-context"]["post"]
-    assert environmental_operation["requestBody"]["content"]["application/json"]["schema"][
-        "$ref"
-    ].endswith("/EnvironmentalContextRequest")
-    assert {"200", "401", "403", "404", "422", "503"} <= environmental_operation["responses"].keys()
+    assert environmental_operation["requestBody"].get("required") is not True
+    environmental_body = environmental_operation["requestBody"]["content"]["application/json"][
+        "schema"
+    ]
+    assert any(
+        item.get("$ref", "").endswith("/EnvironmentalContextRequest")
+        for item in environmental_body["anyOf"]
+    )
+    assert {"200", "401", "403", "404", "409", "422", "503"} <= environmental_operation[
+        "responses"
+    ].keys()
     assert environmental_operation["security"]
 
     rotation_operation = first_paths["/api/v1/farms/{farm_id}/rotation-recommendations"]["post"]
-    assert rotation_operation["requestBody"]["content"]["application/json"]["schema"][
-        "$ref"
-    ].endswith("/RotationRecommendationRequest")
+    assert rotation_operation["requestBody"].get("required") is not True
+    rotation_body = rotation_operation["requestBody"]["content"]["application/json"]["schema"]
+    assert any(
+        item.get("$ref", "").endswith("/RotationRecommendationRequest")
+        for item in rotation_body["anyOf"]
+    )
     assert rotation_operation["responses"]["201"]["content"]["application/json"]["schema"][
         "$ref"
     ].endswith("/RotationResultResponse")
-    assert {"401", "403", "404", "422", "503"} <= rotation_operation["responses"].keys()
+    assert {"401", "403", "404", "409", "422", "503"} <= rotation_operation["responses"].keys()
     assert rotation_operation["security"]
 
     rotation_request_schema = first_app.openapi()["components"]["schemas"][
         "RotationRecommendationRequest"
     ]
-    assert set(rotation_request_schema["properties"]) == {
-        "plot_reference",
-        "historical_seasons",
-        "recommendation_seasons",
-        "force_refresh",
-    }
-    assert rotation_request_schema["properties"]["historical_seasons"]["items"]["$ref"].endswith(
-        "/HistoricalSeasonReport"
-    )
-    assert rotation_request_schema["properties"]["recommendation_seasons"]["items"][
-        "$ref"
-    ].endswith("/RecommendationSeasonSlot")
+    assert set(rotation_request_schema["properties"]) == {"priority_adjustment"}
+    environmental_request_schema = first_app.openapi()["components"]["schemas"][
+        "EnvironmentalContextRequest"
+    ]
+    assert set(environmental_request_schema["properties"]) == {"force_refresh"}
 
 
 def test_location_hash_secret_requires_at_least_32_bytes() -> None:

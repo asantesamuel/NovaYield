@@ -18,6 +18,7 @@ from app.integrations.nasa.power import (
     PowerServiceError,
 )
 from app.models.environmental_snapshots import (
+    AutoRefreshRetry,
     EnvironmentalSnapshot,
     SnapshotIdentity,
     SnapshotSeasonContext,
@@ -32,7 +33,13 @@ from app.repositories.environmental_snapshots import (
 FreshnessStatus = Literal["fresh", "stale", "unknown"]
 DataStatus = Literal["live", "cached", "unavailable"]
 CacheAction = Literal[
-    "miss", "hit", "refreshed", "refresh_failed", "refresh_in_progress", "unavailable"
+    "miss",
+    "hit",
+    "refreshed",
+    "refresh_failed",
+    "refresh_deferred",
+    "refresh_in_progress",
+    "unavailable",
 ]
 
 
@@ -44,20 +51,43 @@ class FreshnessAssessment:
 
 
 class SnapshotFreshnessPolicy:
-    """Optional source-specific age rules; no implicit TTL is supplied.
+    """Source-aware publication and replacement checks, with no global TTL.
 
     If a parameter's source has no configured rule, its freshness is unknown.
     Unknown snapshots are reused with their age visible until explicitly
-    refreshed or a source rule is configured.
+    refreshed or a source rule is configured. The optional POWER checks are
+    based on NASA's roughly two-day first publication and later replacement
+    of near-real-time GEOS-IT meteorology by MERRA-2.
     """
 
-    def __init__(self, refresh_after_by_source: Mapping[str, timedelta] | None = None) -> None:
+    def __init__(
+        self,
+        refresh_after_by_source: Mapping[str, timedelta] | None = None,
+        *,
+        recent_publication_lag: timedelta | None = None,
+        geos_it_replacement_lag: timedelta | None = None,
+        geos_it_recheck_interval: timedelta | None = None,
+    ) -> None:
         normalized: dict[str, timedelta] = {}
         for source, interval in (refresh_after_by_source or {}).items():
             if not source.strip() or interval <= timedelta(0):
                 raise ValueError("Source refresh rules need a name and a positive interval")
             normalized[source.strip().casefold()] = interval
+        for name, interval in (
+            ("recent publication lag", recent_publication_lag),
+            ("GEOS-IT replacement lag", geos_it_replacement_lag),
+            ("GEOS-IT recheck interval", geos_it_recheck_interval),
+        ):
+            if interval is not None and interval <= timedelta(0):
+                raise ValueError(f"{name} must be positive")
+        if (geos_it_replacement_lag is None) != (geos_it_recheck_interval is None):
+            raise ValueError(
+                "GEOS-IT replacement and recheck intervals must be configured together"
+            )
         self._refresh_after_by_source = normalized
+        self._recent_publication_lag = recent_publication_lag
+        self._geos_it_replacement_lag = geos_it_replacement_lag
+        self._geos_it_recheck_interval = geos_it_recheck_interval
 
     def assess(
         self, snapshot: EnvironmentalSnapshot | None, *, now: datetime
@@ -68,9 +98,37 @@ class SnapshotFreshnessPolicy:
         current_time = _as_utc(now)
         retrieved_at = _as_utc(snapshot.retrieved_at)
         age_seconds = max(0.0, (current_time - retrieved_at).total_seconds())
+        if self._recent_publication_lag is not None:
+            first_publication_check = snapshot.identity.end_date + self._recent_publication_lag
+            if retrieved_at.date() < first_publication_check <= current_time.date():
+                return FreshnessAssessment(
+                    "stale",
+                    age_seconds,
+                    "The request period was first retrieved before POWER's expected "
+                    "recent-data publication window ended; check again for the published values.",
+                )
+
+        if self._geos_it_replacement_lag is not None and _includes_geos_it(snapshot):
+            replacement_check = snapshot.identity.end_date + self._geos_it_replacement_lag
+            if current_time.date() >= replacement_check and (
+                retrieved_at.date() < replacement_check
+                or (
+                    self._geos_it_recheck_interval is not None
+                    and current_time - retrieved_at >= self._geos_it_recheck_interval
+                )
+            ):
+                return FreshnessAssessment(
+                    "stale",
+                    age_seconds,
+                    "This POWER period still includes near-real-time GEOS-IT data; "
+                    "check whether MERRA-2 has replaced it.",
+                )
         if not self._refresh_after_by_source:
             return FreshnessAssessment(
-                "unknown", age_seconds, "No source refresh interval is configured."
+                "unknown",
+                age_seconds,
+                "No correction interval is configured for this source; reuse the stored period "
+                "unless a documented correction or explicit refresh requires a new request.",
             )
 
         parameter_sources = [series.metadata.source for series in snapshot.parameters.values()]
@@ -116,6 +174,16 @@ class SnapshotFreshnessPolicy:
         )
 
 
+def _includes_geos_it(snapshot: EnvironmentalSnapshot) -> bool:
+    """Inspect both POWER's header and per-parameter source labels."""
+
+    names = [*snapshot.provider_metadata.source_products]
+    names.extend(series.metadata.source or "" for series in snapshot.parameters.values())
+    return any(
+        "geosit" in "".join(char for char in name.casefold() if char.isalnum()) for name in names
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class SnapshotRetrieval:
     """Service result that keeps cached/live/unavailable provenance explicit."""
@@ -142,6 +210,14 @@ class SnapshotRepository(Protocol):
 
     async def add_request_context(
         self, identity: SnapshotIdentity, context: SnapshotSeasonContext
+    ) -> EnvironmentalSnapshot | None: ...
+
+    async def mark_auto_refresh_failure(
+        self,
+        identity: SnapshotIdentity,
+        *,
+        expected_retrieved_at: datetime,
+        retry: AutoRefreshRetry,
     ) -> EnvironmentalSnapshot | None: ...
 
     async def try_acquire_request_lease(
@@ -199,18 +275,50 @@ class EnvironmentalSnapshotService:
         freshness_policy: SnapshotFreshnessPolicy | None = None,
         snapshot_factory: SnapshotFactory = EnvironmentalSnapshot.from_power_result,
         request_lease_seconds: float = NASA_POWER_DEFAULT_TIMEOUT_SECONDS + 30.0,
+        auto_refresh_failure_backoff: timedelta = timedelta(minutes=30),
     ) -> None:
         if request_lease_seconds <= NASA_POWER_DEFAULT_TIMEOUT_SECONDS:
             raise ValueError(
                 "Request lease must outlast NASA POWER's configured 30-second client timeout"
             )
+        if auto_refresh_failure_backoff <= timedelta(0):
+            raise ValueError("Automatic refresh failure backoff must be positive")
         self._repository = repository or EnvironmentalSnapshotRepository()
         self._nasa_service = nasa_service
         self._location_secret = location_secret
         self._freshness_policy = freshness_policy or SnapshotFreshnessPolicy()
         self._snapshot_factory = snapshot_factory
         self._request_lease_duration = timedelta(seconds=request_lease_seconds)
+        self._auto_refresh_failure_backoff = auto_refresh_failure_backoff
         self._request_locks = _RequestLockPool()
+
+    async def retrieve_cached(
+        self,
+        request: PowerRequest,
+        *,
+        expected_snapshot_id: str,
+        now: datetime | None = None,
+    ) -> SnapshotRetrieval | None:
+        """Read one known matching snapshot without refreshing or contacting NASA.
+
+        A Farm context write can lose to another worker that has already linked
+        a valid snapshot. This narrow read recovers that winning snapshot while
+        preserving NY-6's HMAC identity, freshness and response conventions.
+        """
+
+        identity = build_snapshot_identity(request, location_secret=self._location_secret)
+        stored = await self._repository.find_by_identity(identity)
+        if stored is None or stored.id is None or str(stored.id) != expected_snapshot_id:
+            return None
+        assessment = self._freshness_policy.assess(stored, now=_as_utc(now or datetime.now(UTC)))
+        return self._result_for(
+            stored,
+            request,
+            data_status=_status_for_snapshot(stored, cached=True),
+            cache_action="hit",
+            freshness=assessment,
+            refresh_attempted=False,
+        )
 
     async def retrieve(
         self,
@@ -233,6 +341,25 @@ class EnvironmentalSnapshotService:
             refreshed_while_waiting = (
                 force_refresh and stored is not None and _as_utc(stored.retrieved_at) > requested_at
             )
+            if (
+                stored is not None
+                and assessment.status == "stale"
+                and not force_refresh
+                and stored.auto_refresh_retry is not None
+                and requested_at < _as_utc(stored.auto_refresh_retry.retry_after)
+            ):
+                retry_after = _as_utc(stored.auto_refresh_retry.retry_after)
+                return await self._serve_cached(
+                    identity,
+                    request,
+                    stored,
+                    assessment,
+                    cache_action="refresh_deferred",
+                    warnings=(
+                        "Automatic NASA refresh is deferred after a failed attempt until "
+                        f"{retry_after.isoformat()}; the stored period is served as cached data.",
+                    ),
+                )
             should_refresh = (
                 stored is None
                 or assessment.status == "stale"
@@ -306,7 +433,16 @@ class EnvironmentalSnapshotService:
                 )
 
             try:
-                return await self._refresh_and_persist(identity, request, stored, assessment)
+                return await self._refresh_and_persist(
+                    identity,
+                    request,
+                    stored,
+                    assessment,
+                    requested_at=requested_at,
+                    record_backoff=(
+                        stored is not None and assessment.status == "stale" and not force_refresh
+                    ),
+                )
             finally:
                 try:
                     await self._repository.release_request_lease(
@@ -322,11 +458,22 @@ class EnvironmentalSnapshotService:
         request: PowerRequest,
         stored: EnvironmentalSnapshot | None,
         assessment: FreshnessAssessment,
+        *,
+        requested_at: datetime,
+        record_backoff: bool,
     ) -> SnapshotRetrieval:
         try:
             power_result = await self._nasa_service.retrieve(request)
         except PowerServiceError as error:
-            return await self._refresh_failed(identity, request, stored, assessment, error)
+            return await self._refresh_failed(
+                identity,
+                request,
+                stored,
+                assessment,
+                error,
+                requested_at=requested_at,
+                record_backoff=record_backoff,
+            )
 
         snapshot = self._snapshot_factory(identity, power_result)
         try:
@@ -336,10 +483,17 @@ class EnvironmentalSnapshotService:
                 outcome = await self._repository.replace_after_refresh(snapshot)
         except SnapshotRepositoryError as error:
             if stored is not None:
-                return self._result_for(
+                fallback = await self._record_retry_if_needed(
+                    identity,
                     stored,
+                    requested_at=requested_at,
+                    error_code=type(error).__name__,
+                    record_backoff=record_backoff,
+                )
+                return self._result_for(
+                    fallback,
                     request,
-                    data_status=_status_for_snapshot(stored, cached=True),
+                    data_status=_status_for_snapshot(fallback, cached=True),
                     cache_action="refresh_failed",
                     freshness=assessment,
                     refresh_attempted=True,
@@ -413,6 +567,9 @@ class EnvironmentalSnapshotService:
         snapshot: EnvironmentalSnapshot | None,
         assessment: FreshnessAssessment,
         error: PowerServiceError,
+        *,
+        requested_at: datetime,
+        record_backoff: bool,
     ) -> SnapshotRetrieval:
         if snapshot is None:
             return SnapshotRetrieval(
@@ -427,6 +584,24 @@ class EnvironmentalSnapshotService:
                 warnings=(str(error),),
             )
 
+        previous_retrieved_at = _as_utc(snapshot.retrieved_at)
+        snapshot = await self._record_retry_if_needed(
+            identity,
+            snapshot,
+            requested_at=requested_at,
+            error_code=type(error).__name__,
+            record_backoff=record_backoff,
+        )
+        if _as_utc(snapshot.retrieved_at) > previous_retrieved_at:
+            # A competing worker may have replaced the data before the late
+            # failure marker's conditional write. Its new snapshot wins.
+            return await self._serve_cached(
+                identity,
+                request,
+                snapshot,
+                self._freshness_policy.assess(snapshot, now=requested_at),
+                warnings=("A newer matching snapshot was stored by another request.",),
+            )
         try:
             current = await self._repository.add_request_context(
                 identity, _request_context(request)
@@ -447,6 +622,35 @@ class EnvironmentalSnapshotService:
             error_code=type(error).__name__,
             warnings=(warning,),
         )
+
+    async def _record_retry_if_needed(
+        self,
+        identity: SnapshotIdentity,
+        snapshot: EnvironmentalSnapshot,
+        *,
+        requested_at: datetime,
+        error_code: str,
+        record_backoff: bool,
+    ) -> EnvironmentalSnapshot:
+        """Schedule the next automatic attempt without changing cached data."""
+
+        if not record_backoff:
+            return snapshot
+        retry = AutoRefreshRetry(
+            failed_at=requested_at,
+            retry_after=requested_at + self._auto_refresh_failure_backoff,
+            error_code=error_code,
+        )
+        try:
+            latest = await self._repository.mark_auto_refresh_failure(
+                identity,
+                expected_retrieved_at=snapshot.retrieved_at,
+                retry=retry,
+            )
+        except SnapshotRepositoryError:
+            # Keep valid cached data even if Mongo cannot record the backoff.
+            return snapshot
+        return latest or snapshot
 
     def _result_for(
         self,

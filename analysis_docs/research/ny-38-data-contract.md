@@ -1,28 +1,28 @@
 ---
-title: NY-38 proposed data dictionary and API contract
-status: Research proposal for Product Owner review; no schema has been changed
+title: NY-38 accepted data dictionary and API contract
+status: Accepted NY-39/NY-40 implementation contract on 2026-11-05; local evidence remains provisional
 version: 0.1
 prepared: 2026-11-05
 baseline: dev at 78e0589
 ---
 
-# NY-38 Proposed Data Dictionary and API Contract
+# NY-38 Accepted Data Dictionary and API Contract
 
-This is the proposed storage and interface contract for NY-39 and NY-40. It is not an existing MongoDB schema, a migration, or approval to populate crop traits. The [research handoff](ny-38-research-handoff.md) explains the product decisions and the [evidence and method specification](ny-38-crop-climate-evidence.md) explains which values can be populated. The original *NovaYield MVP PRD* and the [canonical decision record](../../novayield-research-and-product-decisions.md), especially Decisions 13 and 14, take precedence over this proposal.
+This is the accepted storage and interface contract for NY-39 and NY-40 under [Decision 15](../../novayield-research-and-product-decisions.md#decision-15--ny-38-farm-and-climate-implementation-handoff). It is not itself a migration or approval to populate unsupported crop traits. The [research handoff](ny-38-research-handoff.md) explains the product decisions and the [evidence and method specification](ny-38-crop-climate-evidence.md) explains which values can be populated. The original *NovaYield MVP PRD* and the [canonical decision record](../../novayield-research-and-product-decisions.md), especially Decisions 13–15, take precedence.
 
 ## 1. Conventions and versions
 
-- **One decision plot per Farm is proposed, awaiting Product Owner confirmation.** The existing Farm ID then identifies the plot for its ordered history. Multi-plot support would require a separate Plot identity and history ownership boundary.
+- **One Farm represents one decision plot under Decision 15.** The Farm ID identifies the plot for its ordered history. A farmer with multiple plots uses separate Farm profiles; a separate Plot identity and history ownership boundary would require a later scope change.
 - Mongo `_id` and internal references use `ObjectId`, consistent with [NY-4 persistence conventions](../../backend/docs/persistence-conventions.md). The API exposes stable string `crop_key`, `location_key`, and reference-option keys; a server resolves each key to an active Mongo document. `crop_key` is immutable across deployments. A crop rename changes its label, not its key.
-- Every stored document proposed below has `schema_version`. Published crop profile and calendar revisions are immutable; an update creates a new revision. A result pins exact revision IDs and copies the inputs/assessments it used so a later catalog edit cannot silently rewrite its explanation.
+- Every new or extended stored document below has `schema_version`. Published crop profile and calendar revisions are immutable; an update creates a new revision. A result pins exact revision IDs and copies the inputs/assessments it used so a later catalog edit cannot silently rewrite its explanation.
 - `unknown` means the value is not known; `not_assessed` means no rule assessed it; `provisional` means a source supports a scoped hypothesis without local validation; `locally_reviewed` requires a named reviewer and date. These states must remain distinct from numeric zero.
 - The API returns labels and dates, but never private coordinates, owner IDs, session secrets, or raw provider payloads. Existing owner-scoped repository queries remain mandatory for Farm and RotationResult.
 
-**Dictionary legend:** `R` = required to store the record; `C` = required when the stated condition applies; `O` = optional and nullable. Privacy: `public` = catalog/reference data; `private` = an owner's farm input; `internal` = service/provider data; `result` = owner-only decision record. `v1` means an existing field, `v2 add` an additive proposal, `new` a new document, and `v2 deprecated` a retained legacy field that new logic must not infer from. All dates below are ISO calendar dates; all timestamps are UTC instants.
+**Dictionary legend:** `R` = required to store the record; `C` = required when the stated condition applies; `O` = optional and nullable. Privacy: `public` = catalog/reference data; `private` = an owner's farm input; `internal` = service/provider data; `result` = owner-only decision record. `v1` means an existing field, `v2 add` an additive contract field, `new` a new document, and `v2 deprecated` a retained legacy field that new logic must not infer from. All dates below are ISO calendar dates; all timestamps are UTC instants.
 
 ## 2. Canonical crop catalog
 
-The six approved **recommendation candidates** are `maize`, `cowpea`, `groundnut`, `cassava`, `yam`, and `rice` ([Decision 2](../../novayield-research-and-product-decisions.md#decision-2--candidate-crop-library)). The same `crops` collection supplies selectable history crops and recommendation candidates. A separate frontend crop list and free-text history crop are not valid sources of identity. Whether extra `history_only` records may be added for plantain, sorghum, or another locally reported crop requires Product Owner review; it does not automatically expand the six recommendation candidates.
+The six approved **recommendation candidates** are `maize`, `cowpea`, `groundnut`, `cassava`, `yam`, and `rice` ([Decision 2](../../novayield-research-and-product-decisions.md#decision-2--candidate-crop-library)). The same `crops` collection supplies selectable history crops and recommendation candidates. A separate frontend crop list and free-text history crop are not valid sources of identity. [Decision 15](../../novayield-research-and-product-decisions.md#decision-15--ny-38-farm-and-climate-implementation-handoff) permits additional sourced `history_only` identities, such as a specifically identified locally reported crop, without expanding the six recommendation candidates. Ambiguous names such as “beans” must not be guessed into a species.
 
 ### `crops` identity collection
 
@@ -30,7 +30,7 @@ The six approved **recommendation candidates** are `maize`, `cowpea`, `groundnut
 | --- | --- | --- | --- | --- |
 | `_id` | ObjectId, stable internal document reference | Mongo; R | public | new; never recycle |
 | `schema_version` | string, identity schema revision | Backend contract; R | public | new `crop-identity-v1` |
-| `crop_key` | immutable unique slug, e.g. `maize`; API selection ID | Approved candidate list or later approved history-only addition; R | public | new; unique index; never rename |
+| `crop_key` | immutable unique slug, e.g. `maize`; API selection ID | Approved candidate list or sourced history-only identity under Decision 15; R | public | new; unique index; never rename |
 | `common_name` | display name, e.g. `Maize` | Cited catalog/taxonomy; R | public | new; edits do not alter key |
 | `local_names` | list of `LocalName` records below; an empty list means unverified | Locally sourced terminology; O | public display / internal review provenance | new; no invented translation |
 | `scientific_name` | taxon name or explicit genus-level designation where species varies | Taxonomic source; C when known | public | new; `yam` may stay *Dioscorea* spp.; no guessed species |
@@ -128,9 +128,9 @@ Unique revision key: `(location_key, crop_id, profile_revision_id, season_key, c
 
 ## 3. Farm and history
 
-The Farm remains owner-scoped. One proposed Farm represents the decision plot, so its history events are embedded and edited atomically. This is a product assumption to confirm, not a claim about every farmer's real holdings. The selected `location_key` resolves privately to an existing `SupportedLocation` public reference point; no farm coordinate enters a public response.
+The Farm remains owner-scoped. Under Decision 15, one Farm represents one decision plot, so its history events are embedded and edited atomically. This is an MVP product boundary, not a claim that every farmer has only one plot. The selected `location_key` resolves privately to an existing `SupportedLocation` public reference point; no farm coordinate enters a public response.
 
-### `farms` collection: proposed v2 additions and retained v1 fields
+### `farms` collection: v2 additions and retained v1 fields
 
 | Field | Type and meaning | Source and requiredness | Privacy | Version/migration |
 | --- | --- | --- | --- | --- |
@@ -161,7 +161,7 @@ The Farm remains owner-scoped. One proposed Farm represents the decision plot, s
 | `production_system_key` | crop ecology/system or null if unknown | Farmer report + scoped catalog; O generally, C for rice assessment | private | new; no ecology inference from irrigation label |
 | `date_precision`, `date_source` | `day` and `farmer_reported` for a complete event; other precision awaits policy | Farmer report; R | private | new; do not turn approximate dates into exact ones |
 
-All events must belong to this same Farm/plot. A repeated crop in non-overlapping events is valid history and may cause a review warning; duplicate `event_id`/order is invalid. Overlapping crop events describe intercropping and are not flattened into a sole-crop sequence. **Seasonal gaps are not invalid merely because crops do not touch date-to-date.** An unexplained interval stays unknown until the farmer confirms what happened there. A confirmed idle/fallow interval can preserve a valid sole-crop sequence but is not evidence of a measured soil benefit. The exact UI for unknown dates, fallow and intercrops awaits Product Owner review.
+All events must belong to this same Farm/plot. A repeated crop in non-overlapping events is valid history and may cause a review warning; duplicate `event_id`/order is invalid. Overlapping crop events describe intercropping and are not flattened into a sole-crop sequence. **Seasonal gaps are not invalid merely because crops do not touch date-to-date.** An unexplained interval stays unknown until the farmer confirms what happened there. A confirmed idle/fallow interval can preserve a valid sole-crop sequence but is not evidence of a measured soil benefit. Decision 15 permits an owner-scoped draft/`needs_review` profile for incomplete dates, unconfirmed gaps or intercrops; the detailed UI must explain why a sequential rank is withheld.
 
 | `HistoryGap` field | Type and meaning | Source and requiredness | Privacy | Version/migration |
 | --- | --- | --- | --- | --- |
@@ -172,7 +172,7 @@ All events must belong to this same Farm/plot. A repeated crop in non-overlappin
 
 ### `farm_reference_options` collection
 
-Backend-managed selectable soil and irrigation options use one small collection, distinguished by `kind`. Proposed farmer-readable soil labels are `sandy`, `loamy`, `clayey`, and `unknown`; they are self-reported broad texture descriptions, not the USDA 12-class measured taxonomy. Proposed irrigation access labels are `none`, `supplemental`, `regular`, and `unknown`; these do not give delivered millimetres. These labels require Product Owner review before publishing.
+Backend-managed selectable soil and irrigation options use one small collection, distinguished by `kind`. Decision 15 accepts the broad farmer-readable soil labels `sandy`, `loamy`, `clayey`, and `unknown`; they are self-reported texture descriptions, not the USDA 12-class measured taxonomy. It also accepts irrigation access labels `none`, `supplemental`, `regular`, and `unknown`; these do not give delivered millimetres or establish field water storage.
 
 | Field | Type and meaning | Source and requiredness | Privacy | Version/migration |
 | --- | --- | --- | --- | --- |
@@ -196,9 +196,9 @@ The current document already stores an opaque HMAC `identity.request_key` built 
 | `retrieved_at`, `retrieval_status`, `source_url` | Retrieval provenance | R; internal | Existing; refresh replaces only under NY-6 rules |
 | `request_contexts` | Optional calling season/crop labels, not request identity | O; internal | Existing; new context derivation may reference snapshot ID |
 
-**Proposed service-only `FarmEnvironmentalContext` DTO:** `{farm_id, farm_revision, derived_period, source_snapshot_ids, long_term_reference_snapshot_ids, indicators, climate_features, data_status, freshness, method_version, warnings}`. It is owner-scoped in the route and can be copied into a new result for audit; it does not need its own collection unless a measured usage case later justifies one. Daily series must not be duplicated in every RotationResult.
+**Service-only `FarmEnvironmentalContext` DTO:** `{farm_id, farm_revision, derived_period, source_snapshot_ids, long_term_reference_snapshot_ids, indicators, climate_features, data_status, freshness, method_version, warnings}`. It is owner-scoped in the route and can be copied into a new result for audit; it does not need its own collection unless a measured usage case later justifies one. Daily series must not be duplicated in every RotationResult.
 
-### `rotation_results`: proposed v2 extension of NY-20
+### `rotation_results`: v2 extension of NY-20
 
 | Field | Type and meaning | Source and requiredness | Privacy | Version/migration |
 | --- | --- | --- | --- | --- |
@@ -223,7 +223,7 @@ Existing result reads remain owner and farm constrained. `v1` results keep their
 | `feature_key`, `method_version` | controlled strings identifying calculation and its exact version | Pure feature method; R | result | new v2; changes create a new version |
 | `value`, `unit` | numeric value or a numeric interval (`min`,`max`) plus unit; null when not assessed | Calculated from complete NY-6 series; C when status is assessed | result | new v2; missing is never zero |
 | `status`, `reason` | `assessed` / `partial_observed` / `not_assessed`; reason code and safe explanation | Feature validation; R status, C reason when not assessed | result | new v2; no hidden imputation |
-| `stage_window`, `reference_period` | inclusive date/range envelope and fixed reference years, or null when unavailable | Versioned crop calendar/stage and 1991–2020 proposal; C when assessed | result | new v2; future weather is never claimed |
+| `stage_window`, `reference_period` | inclusive date/range envelope and fixed reference years, or null when unavailable | Versioned crop calendar/stage and Decision 15's 1991–2020 reference; C when assessed | result | new v2; future weather is never claimed |
 | `reference_distribution` | `{statistic:"median_of_annual_cdd",start_year:int,end_year:int,feasible_placement_count:int,complete_years_per_placement:int,exposure_min_days:number,exposure_max_days:number}` or null | Pure CDD method over complete matching reference windows; C for an assessed CDD feature | result | new v2; source IDs/method permit per-year recomputation without copying the daily series |
 | `coverage` | `{expected_days:int,valid_days:int,missing_days:int}` for every used series | NY-5/6 normalized data; C when series queried | result | new v2; exact counts retained |
 | `source_snapshot_ids` | list of NY-6 ObjectId references for recent/reference input | Snapshot service; R when feature attempted | result | new v2; no raw NASA response copy |
@@ -247,7 +247,7 @@ These examples show document relationships only. Dates, IDs and daily values bel
 
 The current NY-6 `EnvironmentalSnapshot` has more required nested identity fields than this shortened illustration shows. The implementation must build it through the existing typed `build_snapshot_identity` and model mapper; the fixture is not a seedable Beanie document. The example `history-1` duration does not imply that any named maize variety grows for that many days.
 
-## 6. Proposed API and service boundaries
+## 6. Accepted API and service boundaries
 
 All farm and result routes require the existing NY-11 cookie session and CSRF protection on mutations. A wrong-owner ID must produce the same 404 as a missing ID. Catalog GETs expose only public labels/status, never private farm data or internal coordinate values.
 
@@ -261,7 +261,7 @@ All farm and result routes require the existing NY-11 cookie session and CSRF pr
 | `POST /api/v1/farms/{id}/rotation-recommendations` | No resubmitted history or future windows; uses saved Farm and versioned catalog/calendar | Up to three alternatives with Decision 13 mode/weights, source IDs, timing and missing-evidence reasons; `baseline_status=deferred` | 401/404 as above; missing calendar/traits produces `needs_review` or unranked, no invented slot dates |
 | Existing result history/detail | Farm/result IDs only | Saved v1 and v2 envelopes with version-aware serialization | Owner+farm query filters retained; 404 for another user's result |
 
-**Proposed DTO shape for the completed-history path** (research contract, not an existing OpenAPI schema):
+**DTO shape for the completed-history path** (accepted contract, not necessarily the current OpenAPI schema):
 
 ```text
 FarmCreateOrUpdateV2 = {
@@ -309,9 +309,9 @@ RecommendationResponseV2 = {
 }
 ```
 
-The server never accepts `owner_user_id`, raw coordinates, an environmental date range, or future planting windows in these request bodies. The farm response omits owner ID and the public reference point's coordinates. A missing/incomplete-history DTO would be a separate explicit variant **only if** the Product Owner approves it. Existing `/api/v1` clients are prelaunch; NY-39 must inventory consumers before changing their request shape, coordinate a frontend switch, and retire the old date/baseline generation request. If an external consumer must remain compatible, publish this new workflow under `/api/v2` instead of silently changing its v1 contract.
+The server never accepts `owner_user_id`, raw coordinates, an environmental date range, or future planting windows in these request bodies. The farm response omits owner ID and the public reference point's coordinates. Decision 15 approves an explicit incomplete-history draft/`needs_review` variant; it must preserve reported facts without inventing dates or granting a rank. Existing `/api/v1` clients are prelaunch; NY-39 must inventory consumers before changing their request shape, coordinate a frontend switch, and retire the old date/baseline generation request. If an external consumer must remain compatible, publish this new workflow under `/api/v2` instead of silently changing its v1 contract.
 
-Proposed service interfaces for implementation review:
+Service interfaces for implementation:
 
 ```text
 CropCatalog.resolve_history_key(crop_key) -> CropIdentity | validation_error
@@ -335,10 +335,8 @@ The pure date, climate-feature, calendar and decision functions must not call Mo
 4. Coordinate the changed `/api/v1` request bodies with the frontend before rollout. A transition adapter may continue returning legacy farm text for old clients, but a legacy array never becomes valid dated history; return an explicit upgrade/needs-review state for recommendation generation.
 5. Add repository indexes with NY-4's model registry and migration plan. Validate referential existence in application logic; MongoDB does not provide relational foreign keys. Preserve the existing farm/result owner filters and HMAC snapshot identity.
 
-## 8. Open contract choices for Product Owner review
+## 8. Decision 15 acceptance and remaining implementation work
 
-1. Confirm one Farm means one decision plot. A farm containing multiple plots cannot truthfully share one crop history or soil state.
-2. Decide whether extra `history_only` crop records may be added to the same catalog, or whether unsupported crop histories stop recommendation. The six recommendation candidates remain unchanged either way.
-3. Decide whether an unknown/approximate historical date, explicit fallow, or intercropping can be saved as an incomplete profile, and what the user sees before a decision can be generated. The proposed strict complete-event path does not invent dates or sequences.
-4. Approve the broad soil and irrigation option labels and whether the farmer can choose `unknown`. No option estimates field water storage or irrigation volume.
-5. Agree on the public API transition for existing farm clients and the future calendar/variety inputs. NY-39/40 implementation waits for this research handoff review.
+Decision 15 approves one decision plot per Farm, sourced `history_only` crop identities in the same catalog, explicit draft/`needs_review` histories, broad soil and irrigation choices including `unknown`, and server-derived context and future timing. These choices permit implementation; they do not locally validate a crop trait, calendar or water-balance claim.
+
+The API transition still requires engineering coordination with existing clients and the frontend. The incomplete-history UI must explain what the farmer reported and why a rank is withheld. Any additional history-only crop needs a specific sourced identity; a new recommendation candidate, broad crop-water formula or measured soil claim would be a separate decision.

@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     mongodb_uri: SecretStr = SecretStr("mongodb://localhost:27017")
     mongodb_database_name: str = "nova_yield"
     mongodb_server_selection_timeout_ms: int = Field(default=2_000, gt=0)
+    nasa_recent_publication_lag_days: int = Field(default=3, gt=0, le=14)
+    nasa_geos_it_replacement_lag_days: int = Field(default=60, gt=0, le=180)
+    nasa_geos_it_recheck_interval_days: int = Field(default=30, gt=0, le=180)
+    nasa_refresh_failure_backoff_minutes: int = Field(default=30, gt=0, le=1_440)
     auth_session_lifetime_seconds: int = Field(default=3_600, gt=0)
     auth_cookie_secure: bool = True
     csrf_secret: SecretStr

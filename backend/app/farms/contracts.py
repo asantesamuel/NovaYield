@@ -9,6 +9,15 @@ from app.decisions.scoring import PriorityPoints
 FarmName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
 FarmText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=300)]
 CropName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
+CropKey = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=2,
+        max_length=80,
+        pattern=r"^[a-z0-9]+(?:[-_][a-z0-9]+)*$",
+    ),
+]
 LocationKey = Annotated[
     str,
     StringConstraints(

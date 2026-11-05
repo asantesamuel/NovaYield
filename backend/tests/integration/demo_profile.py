@@ -1,70 +1,75 @@
-"""Fixed, synthetic NY-10 API profile used only by integration tests.
+"""Fixed synthetic Farm v2 inputs for the isolated NY-10 integration suite.
 
-This is intentionally not a real farm, a local agronomic finding, or a public demo
-recommendation. Past crops and environmental responses are invented test inputs
-used to verify contracts, persistence, cache reuse, and result serialization.
+The crop dates, declared gaps, and mocked weather are test data only. They are
+not an Ejura farm observation, validated calendar, or recommendation.
 """
 
-from datetime import UTC, date, datetime, timedelta
+from __future__ import annotations
+
+import secrets
 from typing import Any
 
-PROFILE_ID = "ny10-synthetic-workflow-v1"
+PROFILE_ID = "ny10-synthetic-farm-v2"
 PROFILE_STATUS = "synthetic-test-data-only"
 
-SYNTHETIC_PASSWORD = "ny10-test-only-not-a-real-account-password"
+# Generated at test-process startup; no reusable password is committed.
+SYNTHETIC_PASSWORD = f"Ny10-{secrets.token_hex(16)}!"
 
-FARM_REQUEST: dict[str, Any] = {
-    "name": "NY-10 synthetic test farm",
-    "location_key": "ejura",
-}
-
-PAST_SEASONS: tuple[dict[str, Any], ...] = (
+HISTORY_EVENTS: tuple[dict[str, Any], ...] = (
     {
-        "season_label": "synthetic-past-season-1",
-        "analysis_start_date": "2022-04-01",
-        "analysis_end_date": "2022-04-03",
-        "planted_crop": "maize",
+        "crop_key": "maize",
+        "sequence_order": 1,
+        "start_date": "2022-04-01",
+        "end_date": "2022-07-15",
     },
     {
-        "season_label": "synthetic-past-season-2",
-        "analysis_start_date": "2022-09-01",
-        "analysis_end_date": "2022-09-03",
-        "planted_crop": "cowpea",
+        "crop_key": "cowpea",
+        "sequence_order": 2,
+        "start_date": "2022-09-01",
+        "end_date": "2022-11-15",
     },
     {
-        "season_label": "synthetic-past-season-3",
-        "analysis_start_date": "2023-04-01",
-        "analysis_end_date": "2023-04-03",
-        "planted_crop": "maize",
+        "crop_key": "maize",
+        "sequence_order": 3,
+        "start_date": "2023-04-01",
+        "end_date": "2023-07-15",
     },
 )
 
+DECLARED_GAPS: tuple[dict[str, str], ...] = (
+    {"start_date": "2022-07-16", "end_date": "2022-08-31", "status": "fallow"},
+    {"start_date": "2022-11-16", "end_date": "2023-03-31", "status": "fallow"},
+)
 
-def recommendation_request(*, today: date | None = None) -> dict[str, Any]:
-    """Build one stable request; only future slots move to remain valid over time.
+# The historical POWER period is derived server-side as 2022-04-01–2023-07-15:
+# it spans every event and more than twelve calendar months before the last end.
+CONTEXT_START = "2022-04-01"
+CONTEXT_END = "2023-07-15"
+CONTEXT_POWER_WINDOW = ("20220401", "20230715")
 
-    The three past analysis windows and reported crops are fixed. Future dates are
-    generated relative to UTC today because the API correctly rejects past
-    recommendation slots. These synthetic slots do not represent a Ghana crop
-    calendar or planting advice.
-    """
+FARM_REQUEST: dict[str, Any] = {
+    "name": "Ejura synthetic demonstration plot",
+    "location_key": "ejura",
+    "soil_texture_key": "loamy",
+    "irrigation_access_key": "none",
+    "history_status": "complete",
+    "crop_history": [dict(item) for item in HISTORY_EVENTS],
+    "declared_gaps": [dict(item) for item in DECLARED_GAPS],
+    "current_plot_available": True,
+    "earliest_available_date": "2023-07-16",
+}
 
-    current_day = today or datetime.now(UTC).date()
-    first_start = current_day + timedelta(days=30)
-    future_slots = []
-    for order in range(3):
-        window_start = first_start + timedelta(days=30 * order)
-        window_end = window_start + timedelta(days=6)
-        future_slots.append(
-            {
-                "season_label": f"synthetic-future-slot-{order + 1}",
-                "window_start": window_start.isoformat(),
-                "window_end": window_end.isoformat(),
-            }
-        )
 
+def recommendation_request(*, prioritize_water: bool = False) -> dict[str, Any]:
+    """Only an optional priority override is accepted; dates come from the Farm."""
+
+    if not prioritize_water:
+        return {}
     return {
-        "plot_reference": "synthetic-test-plot",
-        "historical_seasons": [dict(season) for season in PAST_SEASONS],
-        "recommendation_seasons": future_slots,
+        "priority_adjustment": {
+            "water_resilience": 70,
+            "soil_health_potential": 10,
+            "yield_stability_proxy": 10,
+            "labor_feasibility": 10,
+        }
     }

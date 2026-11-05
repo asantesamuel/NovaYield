@@ -137,6 +137,150 @@ body {
   margin-top: 1rem;
   display: flex;
   justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+.form-span {
+  grid-column: 1 / -1;
+}
+
+.form-section {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 1.5rem;
+}
+
+.form-section h2,
+.priorities-section h2,
+.saved-farms h2,
+.saved-confirmation h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.2rem;
+}
+
+.form-section p,
+.priorities-section p,
+.saved-confirmation p {
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.form-section .form-group {
+  margin: 1rem 0;
+}
+
+.form-group small {
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.history-row,
+.gap-choice {
+  border-top: 1px solid var(--border-color);
+  padding-top: 1rem;
+  margin-top: 1rem;
+}
+
+.history-row-heading,
+.saved-farms li,
+.action-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.history-row-heading h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.history-row-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
+}
+
+.saved-farms {
+  margin: 0 0 2rem;
+  padding: 1.25rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.saved-farms ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.saved-farms li {
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--border-color);
+}
+
+.saved-farm-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.saved-confirmation {
+  border: 1px solid #a7f3d0;
+  background: #ecfdf5;
+  border-radius: 8px;
+  padding: 1.5rem;
+}
+
+.action-row {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  margin-top: 1.5rem;
+}
+
+.action-row .submit-btn {
+  text-decoration: none;
+}
+
+.secondary-btn,
+.text-btn {
+  background: white;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--primary-color);
+  cursor: pointer;
+  font: inherit;
+  padding: 0.6rem 1rem;
+}
+
+.text-btn {
+  border: 0;
+  padding: 0.25rem;
+}
+
+.secondary-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.alert {
+  border: 1px solid;
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  line-height: 1.45;
+}
+
+.alert-error {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #991b1b;
+}
+
+.alert-warning {
+  background: #fffbeb;
+  border-color: #fde68a;
+  color: #92400e;
 }
 
 .submit-btn {
@@ -351,4 +495,159 @@ body {
   color: var(--text-muted);
   display: flex;
   justify-content: space-between;
+}
+
+.comparison-page {
+  max-width: 1080px;
+}
+
+.comparison-page > section {
+  margin: 2rem 0;
+}
+
+.comparison-header,
+.option-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.comparison-header h1 {
+  margin: 0.5rem 0;
+}
+
+.comparison-header p,
+.result-version {
+  color: var(--text-muted);
+}
+
+.result-history-list,
+.feature-list,
+.rotation-options,
+.calendar-review-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.priority-adjustment {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 1.5rem;
+}
+
+.priority-point-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.ranking-comparison-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+}
+
+.ranking-comparison-card {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.schedule-status {
+  border-top: 1px solid var(--border-color);
+  margin-top: 1rem;
+  padding-top: 0.5rem;
+}
+
+.result-history-list {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.active-result {
+  border-color: var(--primary-color);
+  background: #ecfdf5;
+}
+
+.empty-state,
+.result-overview,
+.environmental-panel,
+.climate-features,
+.rotation-option,
+.calendar-review-example {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 1.5rem;
+}
+
+.calendar-review-example {
+  border-color: #f59e0b;
+  background: #fffbeb;
+}
+
+.source-badge {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  margin: 1rem 0 1.5rem;
+  color: var(--text-muted);
+}
+
+.source-badge strong {
+  color: var(--primary-color);
+}
+
+.feature-list,
+.criterion-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.feature-card,
+.criterion-card {
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 1rem;
+}
+
+.feature-card h3,
+.criterion-card p {
+  margin-top: 0;
+}
+
+.criterion-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.criterion-card small,
+.event-list span {
+  color: var(--text-muted);
+}
+
+.event-list li {
+  padding: 0.5rem 0;
+}
+
+.rotation-option h4 {
+  margin-bottom: 0.5rem;
+}
+
+.rotation-option p {
+  line-height: 1.5;
+}
+
+@media (max-width: 680px) {
+  .comparison-header,
+  .option-heading,
+  .saved-farms li {
+    flex-direction: column;
+  }
 }

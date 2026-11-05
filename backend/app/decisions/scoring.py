@@ -8,18 +8,26 @@ from __future__ import annotations
 
 from decimal import ROUND_HALF_UP, Decimal
 from fractions import Fraction
+from itertools import combinations
 from typing import Annotated, Literal
 
 from bson.decimal128 import Decimal128
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
+from app.decisions.climate_features import (
+    CLIMATE_TIE_POLICY_VERSION,
+    CropExposureComparison,
+    MatchedCropExposure,
+    StageCDDExposure,
+    compare_matched_rotation_exposure,
+)
 from app.decisions.rotation import (
     CandidateRuleFinding,
     RotationCandidate,
 )
 from app.indicators.environmental import EnvironmentalIndicator
 
-SCORING_VERSION = "ny8-scoring-v4"
+SCORING_VERSION = "ny40-scoring-v5"
 WEIGHT_PERCENT_QUANTUM = Decimal("0.0001")
 
 
@@ -96,6 +104,7 @@ class CriterionEvidence(BaseModel):
     comparison_basis: str | None = None
     evidence_references: tuple[str, ...] = ()
     environmental_inputs: tuple[EnvironmentalIndicator, ...] = ()
+    climate_features: tuple[StageCDDExposure, ...] = ()
     assumptions: tuple[str, ...] = ()
 
     @model_validator(mode="after")
@@ -163,6 +172,7 @@ class TransitionAssessment(BaseModel):
     relationship_id: str | None = None
     predecessor_crop_id: str | None = None
     successor_crop_id: str = Field(min_length=1)
+    context: Literal["reported_history", "history_to_candidate", "candidate"] = "candidate"
     status: TransitionStatus
     rationale: str = Field(min_length=1)
     evidence_references: tuple[str, ...] = ()
@@ -187,6 +197,7 @@ class RotationOptionEvidence(BaseModel):
     event_assessments: tuple[EventAssessment, ...] = ()
     transition_assessments: tuple[TransitionAssessment, ...] = ()
     criteria: tuple[CriterionEvidence, ...] = ()
+    climate_exposures: tuple[MatchedCropExposure, ...] = ()
     benefits: tuple[str, ...] = ()
     trade_offs: tuple[str, ...] = ()
     assumptions: tuple[str, ...] = ()
@@ -292,6 +303,7 @@ class CriterionResult(BaseModel):
     comparison_basis: str | None
     evidence_references: tuple[str, ...]
     environmental_inputs: tuple[EnvironmentalIndicator, ...]
+    climate_features: tuple[StageCDDExposure, ...] = ()
     assumptions: tuple[str, ...]
 
 
@@ -310,6 +322,19 @@ class ScoredOption(BaseModel):
     trade_offs: tuple[str, ...]
     assumptions: tuple[str, ...]
     warnings: tuple[str, ...]
+
+
+class ClimateTiePreference(BaseModel):
+    """A pairwise, provisional CDD preference after equal Decision-13 totals."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    preferred_candidate_id: str
+    other_candidate_id: str
+    policy_version: str = CLIMATE_TIE_POLICY_VERSION
+    metric_key: Literal["stage_cdd_exposure"] = "stage_cdd_exposure"
+    comparisons: tuple[CropExposureComparison, ...]
+    explanation: str
 
 
 class ExcludedOption(BaseModel):
@@ -336,6 +361,7 @@ class RankingOutcome(BaseModel):
     unranked_candidate_count: int = 0
     tie_at_limit: bool = False
     tradeoffs: tuple[RankingTradeoff, ...] = ()
+    climate_tie_preferences: tuple[ClimateTiePreference, ...] = ()
 
 
 class ScoringResult(BaseModel):
@@ -378,21 +404,21 @@ class ScoringResult(BaseModel):
         return payload
 
     @model_validator(mode="after")
-    def validate_v4_output_contract(self) -> ScoringResult:
+    def validate_current_output_contract(self) -> ScoringResult:
         """Require explicit ranking mode and the four-criterion evidence envelope."""
 
         if self.scoring_version != SCORING_VERSION:
             return self
         if len(self.options) > TOP_RECOMMENDATION_LIMIT:
-            raise ValueError("NY-8 v4 can return at most three alternatives")
+            raise ValueError("The scoring result can return at most three alternatives")
         if self.ranking is None:
-            raise ValueError("NY-8 v4 requires ranking status and rationale")
+            raise ValueError("The scoring result requires ranking status and rationale")
         if self.ranking_method != RANKING_METHOD:
-            raise ValueError("NY-8 v4 requires weighted ordinal ranking")
+            raise ValueError("The scoring result requires weighted ordinal ranking")
         if self.ranking_mode is None:
-            raise ValueError("NY-8 v4 requires an explicit ranking mode")
+            raise ValueError("The scoring result requires an explicit ranking mode")
         if not self.ranking.criteria_used:
-            raise ValueError("NY-8 v4 requires the criteria used by its ranking")
+            raise ValueError("The scoring result requires the criteria used by its ranking")
         if self.ranking_mode == "four_criterion" and self.ranking.criteria_used != CRITERIA:
             raise ValueError("Four-criterion mode must use all four approved criteria")
         if self.ranking_mode == "water_soil_fallback" and self.ranking.criteria_used not in (
@@ -401,10 +427,10 @@ class ScoringResult(BaseModel):
         ):
             raise ValueError("Fallback mode must use water, optionally followed by soil health")
         if self.default_weights is None or self.selected_weights is None:
-            raise ValueError("NY-8 v4 requires default and selected weight profiles")
+            raise ValueError("The scoring result requires default and selected weight profiles")
         for option in (*self.options, *((self.baseline_option,) if self.baseline_option else ())):
             if tuple(result.criterion for result in option.criteria) != CRITERIA:
-                raise ValueError("NY-8 v4 options must expose all four criteria in order")
+                raise ValueError("Scored options must expose all four criteria in order")
         return self
 
 
@@ -494,6 +520,7 @@ def _build_scored_option(
                 comparison_basis=evidence.comparison_basis,
                 evidence_references=evidence.evidence_references,
                 environmental_inputs=evidence.environmental_inputs,
+                climate_features=evidence.climate_features,
                 assumptions=evidence.assumptions,
             )
         )
@@ -546,6 +573,118 @@ def _criterion(option: ScoredOption, criterion: Criterion) -> CriterionResult:
     """Find one of the four criterion records in its normalized output."""
 
     return next(item for item in option.criteria if item.criterion == criterion)
+
+
+def _refine_equal_groups_with_climate(
+    groups: tuple[tuple[str, ...], ...],
+    climate_by_id: dict[str, tuple[MatchedCropExposure, ...]],
+    event_count_by_id: dict[str, int],
+) -> tuple[tuple[tuple[str, ...], ...], tuple[ClimateTiePreference, ...], bool]:
+    """Split a weighted tie only when strict CDD evidence orders its whole group.
+
+    CDD is a partial order. A preference between two options does not justify
+    placing a third, incomparable option above or below either one. Pairwise
+    findings stay visible even when the weighted rank group remains tied.
+    """
+
+    refined: list[tuple[str, ...]] = []
+    preferences: list[ClimateTiePreference] = []
+    split_any = False
+    for group in groups:
+        if len(group) < 2 or not all(climate_by_id.get(item) for item in group):
+            refined.append(group)
+            continue
+
+        group_preferences: list[ClimateTiePreference] = []
+        for left_id, right_id in combinations(sorted(group), 2):
+            if event_count_by_id[left_id] != event_count_by_id[right_id]:
+                continue
+            comparison = compare_matched_rotation_exposure(
+                climate_by_id[left_id],
+                climate_by_id[right_id],
+                decision13_weighted_total_tie=True,
+                expected_event_count=event_count_by_id[left_id],
+            )
+            if comparison.status not in {"left_preferred", "right_preferred"}:
+                continue
+            preferred, other = (
+                (left_id, right_id)
+                if comparison.status == "left_preferred"
+                else (right_id, left_id)
+            )
+            preferred_exposures = {
+                (
+                    item.exposure.crop_id,
+                    item.exposure.variety_key,
+                    item.exposure.production_system_key,
+                    item.exposure.stage_key,
+                    item.occurrence_index or 1,
+                ): item.exposure
+                for item in climate_by_id[preferred]
+            }
+            details: list[str] = []
+            for matched in comparison.comparisons:
+                key = (
+                    matched.crop_id,
+                    matched.variety_key,
+                    matched.production_system_key,
+                    matched.stage_key,
+                    matched.occurrence_index,
+                )
+                feature = preferred_exposures.get(key)
+                preferred_interval, other_interval = (
+                    (matched.left_interval_days, matched.right_interval_days)
+                    if preferred == left_id
+                    else (matched.right_interval_days, matched.left_interval_days)
+                )
+                window = (
+                    f"planting {feature.planting_window_start}–{feature.planting_window_end}, "
+                    if feature is not None
+                    else ""
+                )
+                source = (
+                    f"NASA POWER {', '.join(feature.source_products) or 'source unspecified'}, "
+                    f"snapshot {feature.source_snapshot_id}"
+                    if feature is not None
+                    else "NASA POWER source in the stored feature"
+                )
+                details.append(
+                    f"{matched.crop_id} {matched.stage_key} ({window}{source}): "
+                    f"{preferred_interval[0]}–{preferred_interval[1]} vs "
+                    f"{other_interval[0]}–{other_interval[1]} days"
+                )
+            group_preferences.append(
+                ClimateTiePreference(
+                    preferred_candidate_id=preferred,
+                    other_candidate_id=other,
+                    comparisons=comparison.comparisons,
+                    explanation=(
+                        f"{preferred} is preferred over {other} only after equal weighted "
+                        "criterion totals: 1991–2020 median annual longest dry spell "
+                        "(PRECTOTCORR <1 mm/day) intervals are "
+                        + "; ".join(details)
+                        + ". Every matched crop stage has a strictly lower exposure "
+                        "interval. This provisional planting-window comparison is "
+                        "not a water-sufficiency or yield claim."
+                    ),
+                )
+            )
+        preferences.extend(group_preferences)
+
+        expected_pairs = len(group) * (len(group) - 1) // 2
+        if len(group_preferences) != expected_pairs:
+            refined.append(group)
+            continue
+        wins = {item: 0 for item in group}
+        for preference in group_preferences:
+            wins[preference.preferred_candidate_id] += 1
+        if len(set(wins.values())) != len(group):
+            refined.append(group)
+            continue
+        refined.extend((item,) for item in sorted(group, key=lambda item: -wins[item]))
+        split_any = True
+
+    return tuple(refined), tuple(preferences), split_any
 
 
 def _top_three(
@@ -796,6 +935,7 @@ def _rank_options(
     view_name: str,
     plan_reasons: tuple[str, ...],
     unranked_candidate_count: int,
+    climate_by_id: dict[str, tuple[MatchedCropExposure, ...]],
 ) -> tuple[RankingOutcome, list[ScoredOption], tuple[tuple[str, ...], ...]]:
     """Rank the selected evidence-comparable subset using visible effective weights."""
 
@@ -866,7 +1006,13 @@ def _rank_options(
             previous_value = value
         full_groups[-1].append(candidate_id)
 
-    all_groups = tuple(tuple(group) for group in full_groups)
+    weighted_groups = tuple(tuple(group) for group in full_groups)
+    event_count_by_id = {
+        candidate_id: len(option.candidate.events) for candidate_id, option in options_by_id.items()
+    }
+    all_groups, climate_preferences, climate_split = _refine_equal_groups_with_climate(
+        weighted_groups, climate_by_id, event_count_by_id
+    )
     selected, selected_groups, tie_at_limit = _top_three(all_groups, options_by_id)
     tradeoffs = _build_tradeoff_explanations(selected, values_by_id, weights, criteria_used)
     priorities_text = ", ".join(f"{criterion} {weights[criterion]}%" for criterion in criteria_used)
@@ -905,7 +1051,19 @@ def _rank_options(
             )
     if any(len(group) > 1 for group in all_groups):
         reasons.append(
-            "Equal weighted totals remain tied; candidate ID determines display order only."
+            "Equal weighted totals remain tied unless complete, strict matched-crop "
+            "CDD evidence establishes a provisional preference; otherwise candidate "
+            "ID determines display order only."
+        )
+    if climate_split:
+        reasons.append(
+            "A complete strict matched-crop CDD comparison split an equal weighted "
+            "total; criterion ratings and weighted totals were not changed."
+        )
+    elif climate_preferences:
+        reasons.append(
+            "Some pairwise CDD preferences exist, but incomparable alternatives "
+            "keep the wider weighted rank group tied."
         )
     if tie_at_limit:
         reasons.append(
@@ -922,6 +1080,7 @@ def _rank_options(
         unranked_candidate_count=unranked_candidate_count,
         tie_at_limit=tie_at_limit,
         tradeoffs=tradeoffs,
+        climate_tie_preferences=climate_preferences,
     )
     return outcome, selected, all_groups
 
@@ -974,6 +1133,9 @@ def score_rotation_options(request: ScoringRequest) -> ScoringResult:
 
     baseline = scored_by_id[baselines[0].candidate.candidate_id] if baselines else None
     rankable_options = [scored_by_id[item.candidate.candidate_id] for item in rankable_evidence]
+    climate_by_id = {
+        item.candidate.candidate_id: item.climate_exposures for item in rankable_evidence
+    }
     equal_ranking, _equal_top, equal_full_groups = _rank_options(
         rankable_options,
         criteria_used=criteria_used,
@@ -981,6 +1143,7 @@ def score_rotation_options(request: ScoringRequest) -> ScoringResult:
         view_name="equal-weight default",
         plan_reasons=plan_reasons,
         unranked_candidate_count=len(unranked_ids),
+        climate_by_id=climate_by_id,
     )
     selected_ranking, selected, selected_full_groups = _rank_options(
         rankable_options,
@@ -989,6 +1152,7 @@ def score_rotation_options(request: ScoringRequest) -> ScoringResult:
         view_name=("farmer-selected" if request.farmer_priorities is not None else "default"),
         plan_reasons=plan_reasons,
         unranked_candidate_count=len(unranked_ids),
+        climate_by_id=climate_by_id,
     )
 
     if request.farmer_priorities is None:

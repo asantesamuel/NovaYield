@@ -12,7 +12,6 @@ from app.farms.contracts import (
     FarmName,
     FarmText,
     LocationKey,
-    default_farmer_priorities,
 )
 
 FARM_COLLECTION_NAME = "farms"
@@ -30,7 +29,8 @@ class Farm(Document):
     irrigation_access: FarmText | None = None
     previous_crops: list[FarmText] | None = None
     current_practice: FarmText | None = None
-    farmer_priorities: PriorityPoints = Field(default_factory=default_farmer_priorities)
+    # Farmer-entered relative priority points used by the NY-8 four-criterion ranking.
+    farmer_priorities: PriorityPoints | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 

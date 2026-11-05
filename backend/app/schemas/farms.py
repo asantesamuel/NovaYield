@@ -5,16 +5,10 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from app.decisions.scoring import PriorityPoints
-from app.farms.contracts import (
-    CropName,
-    FarmName,
-    FarmText,
-    LocationKey,
-    default_farmer_priorities,
-)
+from app.farms.contracts import CropName, FarmName, FarmText, LocationKey
 
 if TYPE_CHECKING:
     from app.models.farms import Farm
@@ -32,7 +26,7 @@ class FarmCreate(BaseModel):
     irrigation_access: FarmText | None = None
     previous_crops: list[CropName] | None = None
     current_practice: FarmText | None = None
-    farmer_priorities: PriorityPoints = Field(default_factory=default_farmer_priorities)
+    farmer_priorities: PriorityPoints | None = None
 
 
 class FarmUpdate(BaseModel):
@@ -54,7 +48,7 @@ class FarmUpdate(BaseModel):
 
         if not self.model_fields_set:
             raise ValueError("At least one farm field must be supplied")
-        for field_name in ("name", "location_key", "farmer_priorities"):
+        for field_name in ("name", "location_key"):
             if field_name in self.model_fields_set and getattr(self, field_name) is None:
                 raise ValueError(f"{field_name} cannot be cleared")
         return self
@@ -103,7 +97,7 @@ class FarmResponse(BaseModel):
     irrigation_access: FarmText | None = None
     previous_crops: list[CropName] | None = None
     current_practice: FarmText | None = None
-    farmer_priorities: PriorityPoints = Field(default_factory=default_farmer_priorities)
+    farmer_priorities: PriorityPoints | None = None
     created_at: datetime
     updated_at: datetime
 

@@ -33,8 +33,8 @@ These paths are the proposed boundary for later feature tickets; NY-3 only estab
 | --- | --- | --- |
 | Authentication | `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `GET /api/v1/auth/me` | `api/v1/auth` + `services/auth` |
 | Farms | Public location lookup: `GET /api/v1/farms/locations`; authenticated farm operations: `POST /api/v1/farms`, `GET /api/v1/farms`, `GET /api/v1/farms/{farm_id}`, `PATCH /api/v1/farms/{farm_id}` | `app/farms/routes.py`; NY-9 mounts the feature router |
-| Environmental data | Farm-scoped request/retrieval boundary to be confirmed after NASA variable and freshness research | `api/v1/environmental_data` + `integrations/nasa` + `services/environmental_data` |
-| Decision support | Create and retrieve farm-specific rotation results after NY-13–NY-17 provide actionable decision requirements | `api/v1/decisions` + `services/decisions` |
+| Environmental data | Authenticated `POST /api/v1/farms/{farm_id}/environmental-context` accepts an inclusive historical date range and optional explicit refresh; returns NY-7 indicators from an NY-6 snapshot | `app/api/workflows.py`; farm ownership is checked before catalog coordinates are resolved |
+| Decision support | Authenticated farm-specific rotation generation and saved-result retrieval; generation must preserve evidence status and withhold ranks when required evidence is missing or incomparable | `app/api/workflows.py` and `app/rotation_results/routes.py`; NY-9 composes feature-owned services |
 
 Route names can be adjusted in the feature tickets before those APIs are implemented, provided the frontend and backend agree on the request/response schemas and authorization behavior first.
 

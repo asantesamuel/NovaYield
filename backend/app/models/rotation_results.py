@@ -30,7 +30,7 @@ class FarmDecisionInputSnapshot(BaseModel):
     irrigation_access: FarmText | None = None
     previous_crops: tuple[CropName, ...] | None = None
     current_practice: FarmText | None = None
-    farmer_priorities: PriorityPoints
+    farmer_priorities: PriorityPoints | None = None
     farm_updated_at: datetime
 
     @field_validator("farm_updated_at")
@@ -67,6 +67,9 @@ class RotationDecisionInputs(BaseModel):
     generation_request: RotationGenerationRequest
     scoring_request: ScoringRequest
     environmental_snapshot_ids: tuple[PydanticObjectId, ...] = ()
+    crop_library_version: str = "not_recorded"
+    assessment_version: str = "not_recorded"
+    rule_set_version: str = "not_recorded"
 
     @field_validator("environmental_snapshot_ids")
     @classmethod

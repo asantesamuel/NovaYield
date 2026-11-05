@@ -6,21 +6,29 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from httpx import AsyncClient
 from starlette_csrf import CSRFMiddleware
 
 from app.api.authentication import create_authentication_components
 from app.api.health import router as health_router
-from app.api.router import api_router
+from app.api.router import create_api_router
 from app.core.config import Settings, get_settings
 from app.core.readiness import register_readiness_check
 from app.database.connection import MongoConnection
+from app.integrations.nasa.power import (
+    NASAPowerHttpClient,
+    NASAPowerService,
+    create_nasa_power_http_client,
+)
 from app.services.authentication import AUTH_COOKIE_NAME, AUTH_CSRF_COOKIE_NAME
+from app.services.environmental_snapshots import EnvironmentalSnapshotService
 
 
 def create_app(
     settings: Settings | None = None,
     *,
     mongo_connection_factory: Callable[[Settings], MongoConnection] = MongoConnection,
+    nasa_http_client_factory: Callable[[], AsyncClient] = create_nasa_power_http_client,
 ) -> FastAPI:
     """Build a configured FastAPI application, allowing isolated test settings."""
 
@@ -32,12 +40,26 @@ def create_app(
         mongo = mongo_connection_factory(app_settings)
         app.state.mongo = mongo
         register_readiness_check(app, "database", mongo.is_ready)
+        nasa_http_client: AsyncClient | None = None
         try:
+            # One HTTP client is shared by NASA calls for this app and event loop.
+            nasa_http_client = nasa_http_client_factory()
+            app.state.nasa_power_http_client = nasa_http_client
+            nasa_service = NASAPowerService(NASAPowerHttpClient(nasa_http_client))
+            app.state.environmental_snapshot_service = EnvironmentalSnapshotService(
+                nasa_service=nasa_service,
+                location_secret=app_settings.location_hash_secret.get_secret_value(),
+            )
+
             # A failed ping keeps the process alive; readiness reports that it cannot serve.
             await mongo.connect()
             yield
         finally:
-            await mongo.close()
+            try:
+                if nasa_http_client is not None:
+                    await nasa_http_client.aclose()
+            finally:
+                await mongo.close()
 
     application = FastAPI(
         title=app_settings.app_name,
@@ -70,7 +92,10 @@ def create_app(
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "X-CSRF-Token"],
     )
-    application.include_router(api_router, prefix=app_settings.api_v1_prefix)
+    application.include_router(
+        create_api_router(authentication.current_active_user),
+        prefix=app_settings.api_v1_prefix,
+    )
     application.include_router(authentication.router, prefix=app_settings.api_v1_prefix)
     application.include_router(health_router)
     return application

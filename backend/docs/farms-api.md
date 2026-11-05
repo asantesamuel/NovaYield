@@ -41,17 +41,19 @@ There is no farm delete endpoint in this ticket. A farm profile uses the catalog
   "previous_crops": ["maize", "cowpea"],
   "current_practice": "maize followed by cowpea",
   "farmer_priorities": {
-    "water_resilience": 25,
-    "soil_health_potential": 25,
-    "yield_stability_proxy": 25,
-    "labor_feasibility": 25
+    "water_resilience": 40,
+    "soil_health_potential": 30,
+    "yield_stability_proxy": 20,
+    "labor_feasibility": 10
   }
 }
 ```
 
-`current_practice` is optional and must be a non-empty string when supplied; omit it when unknown. Optional fields can be set to `null` in a patch to clear them. `name`, `location_key`, and `farmer_priorities` cannot be cleared.
+`current_practice` is optional and must be a non-empty string when supplied; omit it when unknown. Optional fields can be set to `null` in a patch to clear them. `name` and `location_key` cannot be cleared.
 
-The response contains a string farm ID, the selected key/label, profile inputs, priorities, and timestamps. It omits `owner_user_id`, the catalog coordinates, and internal source metadata. A location that is later disabled remains resolvable for its existing farm profiles, but cannot be selected for new or changed profiles.
+`farmer_priorities` is optional and contains four relative importance points from 0 to 100; at least one must be positive. NY-8 normalizes these points to percentages. Omitting the field uses equal weights. Priorities affect future result ordering but never override failed hard constraints. A saved result keeps the preference snapshot used when it was generated.
+
+The response contains a string farm ID, the selected key/label, profile inputs, farmer priorities, and timestamps. It omits `owner_user_id`, catalog coordinates, and internal source metadata. A location later disabled remains resolvable for existing farm profiles, but cannot be selected for new or changed profiles.
 
 ## Browser session and CSRF
 

@@ -87,7 +87,11 @@ def make_result(
             )
             for order in (1, 2, 3)
         ),
-        candidate_crops=(CropCandidate(crop_id="maize", display_name="Maize"),),
+        candidate_crops=(
+            CropCandidate(crop_id="maize", display_name="Maize"),
+            CropCandidate(crop_id="cowpea", display_name="Cowpea"),
+            CropCandidate(crop_id="groundnut", display_name="Groundnut"),
+        ),
     )
     generated = generate_rotation_candidates(generation_request)
     indicator = EnvironmentalIndicator(
@@ -125,15 +129,21 @@ def make_result(
         )
         for criterion in CRITERIA
     )
+    candidates = [
+        candidate
+        for candidate in generated.candidates
+        if len({event.crop.crop_id for event in candidate.events}) > 1
+    ][:2]
     scoring_request = ScoringRequest(
-        options=(
+        options=tuple(
             RotationOptionEvidence(
-                candidate=generated.candidates[0],
+                candidate=candidate,
                 criteria=evidence,
                 benefits=("Synthetic fixture benefit.",),
                 trade_offs=("Synthetic fixture trade-off.",),
                 assumptions=("Synthetic fixture only.",),
-            ),
+            )
+            for candidate in candidates
         )
     )
     return RotationResult.model_construct(
@@ -290,9 +300,22 @@ def test_owner_can_list_only_own_farm_results_with_safe_provenance() -> None:
         "created_at",
         "farm_inputs",
         "generator_version",
+        "crop_library_version",
+        "assessment_version",
+        "rule_set_version",
+        "environmental_snapshot_ids",
+        "candidate_pool_summary",
         "scoring_result",
     }
     assert body[0]["generator_version"] == own_result.candidate_generation.generator_version
+    assert body[0]["crop_library_version"] == "not_recorded"
+    assert body[0]["environmental_snapshot_ids"] == []
+    assert body[0]["candidate_pool_summary"]["total_generated"] == len(
+        own_result.candidate_generation.candidates
+    )
+    assert body[0]["candidate_pool_summary"]["total_returned"] == len(
+        own_result.scoring_result.options
+    ) + int(own_result.scoring_result.baseline_option is not None)
     rainfall = body[0]["scoring_result"]["options"][0]["criteria"][0]
     assert rainfall["environmental_inputs"][0]["source"] == "NASA POWER"
     assert rainfall["environmental_inputs"][0]["data_status"] == "cached"

@@ -26,6 +26,6 @@ The coordinate stays inside `SupportedLocation` in MongoDB. A farm document stor
 
 ## Scope and validation
 
-The farm feature router exposes a public `GET /api/v1/farms/locations` response with the stable keys, display labels, and a coverage notice explaining that NovaYield has not expanded to other parts of Ghana. Farm CRUD remains authenticated. NY-9 must mount `create_farm_router` into the versioned API and supply NY-11's `current_active_user` dependency.
+The farm feature router exposes a public `GET /api/v1/farms/locations` response with the stable keys, display labels, and a coverage notice explaining that NovaYield has not expanded to other parts of Ghana. Farm CRUD remains authenticated. NY-9 composes `create_farm_router` into the versioned API and supplies NY-11's app-specific `current_active_user` dependency.
 
 The point source establishes a named-place coordinate, not local agronomic suitability or the accuracy of gridded NASA data at a particular farm. Verify the point and NASA grid metadata with local extension partners and source responses before making stronger claims. Add or change a location only with a sourced record and explicit pilot-scope review.

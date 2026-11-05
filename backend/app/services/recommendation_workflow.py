@@ -25,7 +25,7 @@ from app.decisions.crop_evidence import (
     FarmAssessmentContext,
     build_crop_evidence_option,
 )
-from app.decisions.crop_profiles import CropProfile
+from app.decisions.crop_profiles import CROP_LIBRARY_VERSION, CropProfile, CropTraitEvidence
 from app.decisions.future_calendar import (
     FUTURE_CALENDAR_METHOD_VERSION,
     CropCalendarSpec,
@@ -56,7 +56,6 @@ from app.farms.environmental_context import FarmContextService
 from app.indicators.environmental import EnvironmentalIndicator
 from app.integrations.nasa.power import PowerParameterSeries, PowerRequest
 from app.models.crop_catalog import (
-    CROP_IDENTITY_SCHEMA_VERSION,
     CropCalendar,
     CropProfileRevision,
     EvidenceValue,
@@ -166,8 +165,42 @@ def _weaker_evidence_status(*statuses: str) -> str:
     return "locally_reviewed"
 
 
+def _water_trait_from_profile(profile: CropProfileRevision) -> CropTraitEvidence | None:
+    """Adapt one persisted evidence envelope to the pure NY-8 assessment model."""
+
+    decision_traits = getattr(profile, "decision_traits", None)
+    evidence = getattr(decision_traits, "water_resilience_class", None)
+    if evidence is None:
+        return None
+    water_class = evidence.value.get("class")
+    if water_class not in ("low", "moderate", "high"):
+        return None
+    source = evidence.source
+    evidence_status = _weaker_evidence_status(profile.evidence_status, source.validation_status)
+    if evidence_status in ("unknown", "conflicted"):
+        return None
+    references = tuple(dict.fromkeys((source.source_url, *source.additional_source_urls)))
+    return CropTraitEvidence(
+        trait_name="water_resilience_class",
+        value=water_class,
+        evidence_status=evidence_status,
+        source_reference="; ".join(references),
+        source_title=source.source_title,
+        source_date=source.source_publication_date,
+        study_location=source.study_location,
+        agroecological_zone=source.agroecological_zone,
+        variety=source.variety,
+        production_system=source.production_system,
+        management_conditions=source.management,
+        confidence=source.source_confidence,
+        pilot_transferability=source.pilot_transferability,
+        applicability_notes=source.applicability,
+        limitations=source.limitations,
+    )
+
+
 def _catalog_from_bundles(bundles: list[CropCandidateBundle]) -> CandidateCatalog:
-    """Use canonical Mongo identities; static NY-8 candidate/profile defaults are bypassed."""
+    """Build assessment inputs from canonical Mongo identities and active profiles."""
 
     if not bundles or any(bundle.crop.id is None for bundle in bundles):
         raise CropCatalogNotReady("The canonical crop catalog is not ready")
@@ -197,6 +230,9 @@ def _catalog_from_bundles(bundles: list[CropCandidateBundle]) -> CandidateCatalo
             ),
             None,
         )
+        water_trait = (
+            _water_trait_from_profile(generic_profile) if generic_profile is not None else None
+        )
         assessment_profiles[crop.crop_key] = (
             CropProfile(
                 crop_id=crop.crop_key,
@@ -204,9 +240,9 @@ def _catalog_from_bundles(bundles: list[CropCandidateBundle]) -> CandidateCatalo
                 scientific_name=crop.scientific_name,
                 crop_family=crop.family,
                 identity_source_reference=(crop.identity_source_url or "NY-38 crop catalog"),
-                # The approved seed has no comparable qualitative class. Scoped
-                # traits cannot be promoted from a crop name or family.
-                traits=(),
+                # Use only a generic persisted trait. Never inherit another
+                # variety or production-system profile into this candidate.
+                traits=(water_trait,) if water_trait is not None else (),
             )
             if generic_profile is not None
             else None
@@ -704,7 +740,6 @@ async def create_rotation_result_for_owned_farm(
                 environmental_context_ready=context_ready,
                 crop_profiles_by_id=catalog.assessment_profiles,
                 climate_exposures=exposure_by_id[candidate.candidate_id],
-                require_sourced_timing=True,
             )
             for candidate in generated.candidates
         ),
@@ -798,7 +833,7 @@ async def create_rotation_result_for_owned_farm(
         ),
         crop_profile_revision_ids=profile_ids,
         calendar_version_ids=calendar_ids,
-        crop_library_version=CROP_IDENTITY_SCHEMA_VERSION,
+        crop_library_version=CROP_LIBRARY_VERSION,
         assessment_version=ASSESSMENT_VERSION,
         rule_set_version=ROTATION_RULE_SET_VERSION,
         scoring_version=SCORING_VERSION,

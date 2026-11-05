@@ -12,6 +12,7 @@ from app.decisions.crop_profiles import (
     CROP_PROFILES,
     CROP_TRANSITION_EVIDENCE,
     CropProfile,
+    CropTraitEvidence,
     CropTransitionEvidence,
 )
 from app.decisions.rotation import RotationCandidate
@@ -24,7 +25,7 @@ from app.decisions.scoring import (
 )
 from app.indicators.environmental import EnvironmentalIndicator
 
-ASSESSMENT_VERSION = "ny40-sequence-assessment-v3"
+ASSESSMENT_VERSION = "ny40-sequence-assessment-v4"
 WaterRating = Literal["high", "moderate", "low"]
 
 YIELD_STABILITY_SOURCES = {
@@ -69,7 +70,6 @@ def build_crop_evidence_option(
     environmental_context_ready: bool = False,
     crop_profiles_by_id: Mapping[str, CropProfile | None] | None = None,
     climate_exposures: tuple[MatchedCropExposure, ...] = (),
-    require_sourced_timing: bool = False,
 ) -> RotationOptionEvidence:
     """Assess one full sequence; never turn missing crop or farm data into a rating."""
 
@@ -77,58 +77,39 @@ def build_crop_evidence_option(
     profile_source = CROP_PROFILES if crop_profiles_by_id is None else crop_profiles_by_id
     crop_profiles = tuple(profile_source.get(event.crop.crop_id) for event in candidate.events)
     event_assessments = _assess_events(candidate, crop_profiles, context)
-    if require_sourced_timing and any(
-        event.event.window_start is None
-        or event.event.window_end is None
-        or event.event.harvest_end is None
-        for event in candidate.events
-    ):
-        water = CriterionEvidence(
-            criterion="water_resilience",
-            status="not_assessed",
-            rationale=(
-                "A crop-specific sourced planting and maturity window is unavailable "
-                "for at least one proposed event. The three-event horizon and historical "
-                "climate exposure cannot be compared without inventing dates."
-            ),
-            environmental_inputs=historical_indicators,
-            climate_features=tuple(item.exposure for item in climate_exposures),
-            assumptions=("Unknown or provisional evidence is not promoted to a water rating.",),
+    water = _assess_sequence_water(
+        candidate,
+        crop_profiles,
+        historical_indicators,
+        context,
+        environmental_context_ready=environmental_context_ready,
+    )
+    if climate_exposures:
+        assessed = tuple(
+            item.exposure for item in climate_exposures if item.exposure.status == "assessed"
         )
-    else:
-        water = _assess_sequence_water(
-            candidate,
-            crop_profiles,
-            historical_indicators,
-            context,
-            environmental_context_ready=environmental_context_ready,
+        climate_note = (
+            "Provisional NASA POWER 1991–2020 median annual consecutive-dry-day "
+            "exposure (<1 mm/day) by sourced crop stage: "
+            + "; ".join(
+                f"{feature.crop_id} {feature.stage_key}, planting window "
+                f"{feature.planting_window_start} to {feature.planting_window_end}: "
+                f"{feature.exposure_min_days}–{feature.exposure_max_days} days "
+                f"(snapshot {feature.source_snapshot_id}; "
+                f"source {', '.join(feature.source_products) or 'NASA POWER'})."
+                for feature in assessed
+            )
+            + " These values may inform only the approved strict matched-crop tie preference; "
+            "they are not a crop water-sufficiency rating."
+            if assessed
+            else "Crop-stage dry-spell exposure is not assessed for this option."
         )
-        if climate_exposures:
-            assessed = tuple(
-                item.exposure for item in climate_exposures if item.exposure.status == "assessed"
-            )
-            climate_note = (
-                "Provisional NASA POWER 1991–2020 median annual consecutive-dry-day "
-                "exposure (<1 mm/day) by sourced crop stage: "
-                + "; ".join(
-                    f"{feature.crop_id} {feature.stage_key}, planting window "
-                    f"{feature.planting_window_start} to {feature.planting_window_end}: "
-                    f"{feature.exposure_min_days}–{feature.exposure_max_days} days "
-                    f"(snapshot {feature.source_snapshot_id}; "
-                    f"source {', '.join(feature.source_products) or 'NASA POWER'})."
-                    for feature in assessed
-                )
-                + " These values may inform only the approved strict matched-crop tie preference; "
-                "they are not a crop water-sufficiency rating."
-                if assessed
-                else "Crop-stage dry-spell exposure is not assessed for this option."
-            )
-            water = water.model_copy(
-                update={
-                    "rationale": f"{water.rationale} {climate_note}",
-                    "climate_features": tuple(item.exposure for item in climate_exposures),
-                }
-            )
+        water = water.model_copy(
+            update={
+                "rationale": f"{water.rationale} {climate_note}",
+                "climate_features": tuple(item.exposure for item in climate_exposures),
+            }
+        )
     transitions = _assess_sequence_transitions(
         candidate,
         crop_profiles,
@@ -156,6 +137,9 @@ def build_crop_evidence_option(
         "weather or a crop water-balance calculation.",
         "Future recommendation windows are only asserted when their scoped crop and "
         "maturity sources supply dates; provisional windows need local review.",
+        "Missing future timing remains a separate review warning and does not suppress "
+        "a provisional crop-level water-class comparison when its evidence and historical "
+        "NASA context are available.",
     ]
     if context.irrigation_access is None:
         assumptions.append("Farm irrigation access is unknown and was not inferred.")
@@ -266,7 +250,9 @@ def _assess_sequence_water(
             ),
         )
 
-    evidence: list[tuple[str, CropProfile, WaterRating, Confidence, tuple[str, ...]]] = []
+    evidence: list[
+        tuple[str, CropProfile, CropTraitEvidence, WaterRating, Confidence, tuple[str, ...]]
+    ] = []
     unknown_crops: list[str] = []
     for event, profile in zip(candidate.events, profiles, strict=True):
         trait = profile.trait("water_resilience_class") if profile is not None else None
@@ -275,7 +261,7 @@ def _assess_sequence_water(
             or trait is None
             or trait.value not in ("high", "moderate", "low")
             or trait.confidence is None
-            or trait.evidence_status == "unknown"
+            or trait.evidence_status in ("unknown", "conflicted")
         ):
             unknown_crops.append(event.crop.display_name)
             continue
@@ -283,6 +269,7 @@ def _assess_sequence_water(
             (
                 event.crop.display_name,
                 profile,
+                trait,
                 trait.value,  # type: ignore[arg-type]
                 trait.confidence,
                 tuple(reference for reference in trait.source_reference.split("; ") if reference),
@@ -305,14 +292,19 @@ def _assess_sequence_water(
         )
 
     order = {"low": 1, "moderate": 2, "high": 3}
-    rating: WaterRating = min((item[2] for item in evidence), key=order.__getitem__)
+    rating: WaterRating = min((item[3] for item in evidence), key=order.__getitem__)
     confidence_order = {"low": 1, "moderate": 2, "high": 3}
-    confidence = min((item[3] for item in evidence), key=confidence_order.__getitem__)
+    confidence = min((item[4] for item in evidence), key=confidence_order.__getitem__)
     summaries = "; ".join(
-        f"season {event.event.order} {item[0]}: {item[2]}"
+        f"season {event.event.order} {item[0]}: {item[3]} class "
+        f"(confidence {item[4]}, pilot transfer {item[2].pilot_transferability or 'unknown'}; "
+        f"{item[2].applicability_notes or item[2].source_title or 'sourced desk evidence'})"
         for event, item in zip(candidate.events, evidence, strict=True)
     )
-    references = tuple(dict.fromkeys(reference for item in evidence for reference in item[4]))
+    references = tuple(dict.fromkeys(reference for item in evidence for reference in item[5]))
+    limitations = tuple(
+        dict.fromkeys(item[2].limitations for item in evidence if item[2].limitations is not None)
+    )
     context_notes = []
     if farm_context.irrigation_access is not None:
         context_notes.append(
@@ -332,8 +324,11 @@ def _assess_sequence_water(
         rationale=(
             "Sequence class uses the least water-resilient crop as a conservative "
             f"bottleneck ({summaries}). Ratings are relative and provisional. "
-            "Historical NASA indicators are preserved as context; they do not "
-            "change this crop-level class. " + " ".join(context_notes)
+            "This desk-based crop class is not a measured crop-water requirement or "
+            "farm water-sufficiency estimate. Historical NASA indicators are retained "
+            "as past-period context; they do not change the class. The approved NASA "
+            "dry-spell feature may only refine a strict tie when crop-stage timing is "
+            "fully sourced. " + " ".join(context_notes)
         ),
         comparison_basis="ny8-water-resilience-desk-synthesis-v1",
         evidence_references=references,
@@ -345,6 +340,7 @@ def _assess_sequence_water(
             "not used as farm irrigation requirements.",
             "Temperature and precipitation alone do not provide ET0, crop stage, "
             "effective rainfall, soil-water storage, or irrigation scheduling.",
+            *limitations,
         ),
     )
 

@@ -143,7 +143,21 @@ def test_seed_has_only_scoped_maturity_and_no_invented_numeric_traits_or_dates()
     }
 
 
-def test_new_crop_and_calendar_revisions_require_explicit_publication() -> None:
+def test_new_crop_and_calendar_revisions_require_explicit_publication(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # These are Pydantic validation tests, not Mongo integration tests. Beanie
+    # normally requires collection initialization before constructing Documents.
+    monkeypatch.setattr(
+        CropProfileRevision,
+        "get_pymongo_collection",
+        classmethod(lambda _cls: object()),
+    )
+    monkeypatch.setattr(
+        CropCalendar,
+        "get_pymongo_collection",
+        classmethod(lambda _cls: object()),
+    )
     crop_id = PydanticObjectId()
     draft_profile = CropProfileRevision(crop_id=crop_id, revision=2)
     assert draft_profile.is_active is False

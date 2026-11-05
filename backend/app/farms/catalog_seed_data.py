@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.models.crop_catalog import GrowthStage, SourceEvidence
+from app.decisions.crop_profiles import CROP_LIBRARY_VERSION, CROP_PROFILES
+from app.models.crop_catalog import EvidenceValue, GrowthStage, SourceEvidence
 
 CSIR_VARIETIES = "https://technologies.csirgh.com/maincropvarieties"
 MOFA_MAIZE = "https://mofa.gov.gh/site/images/pdf/production_guides/GUIDE_TO_MAIZE_PRODUCTION.pdf"
@@ -23,6 +24,13 @@ EJURA_TOWN_PROFILE = "https://esma.gov.gh/about-us/town-profile/"
 MOFA_EJURA_PROFILE = (
     "https://mofa.gov.gh/site/directorates/55-district-directorates/"
     "district-ashanti/164-ejura-sekyeredumase"
+)
+LEGACY_GENERIC_PROFILE_NOTE = (
+    "Generic identity has no validated local duration or numerical crop traits."
+)
+GENERIC_PROFILE_SOURCE_NOTE = (
+    f"{CROP_LIBRARY_VERSION}: generic identity with provisional NY-8 water class where "
+    "sourced; no locally validated calendar, field water balance, or crop-specific threshold."
 )
 
 CROP_IDENTITY_SEEDS: tuple[dict[str, Any], ...] = (
@@ -110,6 +118,8 @@ def _source(
     *,
     variety: str | None = None,
     production_system: str | None = None,
+    source_confidence: str = "moderate",
+    pilot_transferability: str = "low",
     applicability: str,
     limitations: str,
     study_location: str | None = None,
@@ -121,12 +131,55 @@ def _source(
         agroecological_zone="Ghana forest–savanna transition" if url == CSIR_VARIETIES else None,
         variety=variety,
         production_system=production_system,
-        source_confidence="moderate",
-        pilot_transferability="low",
+        source_confidence=source_confidence,
+        pilot_transferability=pilot_transferability,
         applicability=applicability,
         limitations=limitations,
         validation_status="provisional",
     )
+
+
+def _water_class_evidence(crop_key: str) -> EvidenceValue | None:
+    """Copy reviewed NY-8 desk evidence into the versioned Mongo crop profile."""
+
+    crop_profile = CROP_PROFILES[crop_key]
+    trait = crop_profile.trait("water_resilience_class")
+    if trait is None or trait.value not in {"low", "moderate", "high"}:
+        return None
+    references = tuple(
+        reference.strip()
+        for reference in (trait.source_reference or "").split(";")
+        if reference.strip()
+    )
+    if not references:
+        return None
+    return EvidenceValue(
+        value={"class": trait.value},
+        source=SourceEvidence(
+            source_url=references[0],
+            additional_source_urls=references[1:],
+            source_title=trait.source_title or "NY-8 provisional crop-by-criterion evidence matrix",
+            source_publication_date=trait.source_date,
+            study_location=trait.study_location,
+            agroecological_zone=trait.agroecological_zone,
+            variety=trait.variety,
+            production_system=trait.production_system,
+            management=trait.management_conditions,
+            source_confidence=trait.confidence or "low",
+            pilot_transferability=trait.pilot_transferability or "low",
+            applicability=trait.applicability_notes or "Scoped desk-research crop evidence.",
+            limitations=trait.limitations
+            or "Pilot transfer and farm-specific suitability are unknown.",
+            validation_status="provisional",
+        ),
+    )
+
+
+WATER_RESILIENCE_EVIDENCE = {
+    crop_key: evidence
+    for crop_key in CROP_PROFILES
+    if (evidence := _water_class_evidence(crop_key)) is not None
+}
 
 
 def _sensitive_stage(stage_key: str, url: str, title: str, crop: str) -> GrowthStage:

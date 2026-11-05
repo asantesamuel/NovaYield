@@ -12,8 +12,10 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-CROP_LIBRARY_VERSION = "ny8-crop-library-v1"
-EvidenceStatus = Literal["unknown", "provisional", "locally_validated"]
+CROP_LIBRARY_VERSION = "ny8-crop-library-v2"
+EvidenceStatus = Literal[
+    "unknown", "provisional", "locally_reviewed", "locally_validated", "conflicted"
+]
 EvidenceConfidence = Literal["low", "moderate", "high"]
 
 
@@ -37,6 +39,7 @@ class CropTraitEvidence(BaseModel):
     production_system: str | None = None
     management_conditions: str | None = None
     confidence: EvidenceConfidence | None = None
+    pilot_transferability: EvidenceConfidence | None = None
     applicability_notes: str | None = None
     limitations: str | None = None
 
@@ -135,6 +138,7 @@ def _water_profile(
     *,
     resilience: str | None,
     confidence: EvidenceConfidence | None,
+    pilot_transferability: EvidenceConfidence | None = "low",
     rationale: str | None,
     references: tuple[str, ...] = (),
     requirement_min: float | None = None,
@@ -155,6 +159,7 @@ def _water_profile(
                 source_title="NY-8 provisional crop-by-criterion evidence matrix",
                 study_location="Multiple public sources; transfer to Ejura is provisional",
                 confidence=confidence,
+                pilot_transferability=pilot_transferability,
                 applicability_notes=rationale,
                 limitations="Crop-level desk synthesis; not a farm water-balance estimate.",
             )
@@ -189,6 +194,7 @@ def _water_profile(
                 source_reference="; ".join(references),
                 source_title="NY-8 provisional crop-by-criterion evidence matrix",
                 confidence=confidence,
+                pilot_transferability=pilot_transferability,
                 applicability_notes="Interpret only within the stated source and crop context.",
                 limitations="Not a locally validated crop or variety threshold.",
             )

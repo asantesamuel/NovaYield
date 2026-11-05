@@ -18,6 +18,7 @@ from fastapi import FastAPI
 from pymongo.errors import PyMongoError
 
 from app.api.workflows import create_workflow_router, get_environmental_snapshot_service
+from app.farms.catalog_seed_data import WATER_RESILIENCE_EVIDENCE
 from app.farms.context_window import derive_context_period
 from app.farms.contracts import LocationCoordinates
 from app.farms.routes import (
@@ -33,7 +34,7 @@ from app.integrations.nasa.power import (
     PowerProviderMetadata,
     SeasonalSummary,
 )
-from app.models.crop_catalog import Crop
+from app.models.crop_catalog import Crop, CropProfileRevision, DecisionTraits
 from app.models.farms import CropHistoryEvent, Farm, FarmEnvironmentalContextState
 from app.models.rotation_results import FarmDecisionInputSnapshot, RotationResult
 from app.models.supported_locations import SupportedLocation
@@ -228,24 +229,34 @@ class FakeSnapshotService:
 class FakeCatalogRepository:
     def __init__(self) -> None:
         self.lookups: list[str] = []
-        self.bundles = [
-            CropCandidateBundle(
-                crop=Crop.model_construct(
-                    id=PydanticObjectId(),
-                    crop_key=key,
-                    common_name=key.title(),
-                    scientific_name=None,
-                    family=None,
-                    identity_source_url=f"https://example.org/synthetic-{key}",
-                    history_selectable=True,
-                    recommendation_candidate=True,
-                    catalog_status="active",
-                ),
-                active_profiles=(),
-                calendars=(),
+        self.bundles = []
+        for key in ("maize", "cowpea", "groundnut"):
+            crop = Crop.model_construct(
+                id=PydanticObjectId(),
+                crop_key=key,
+                common_name=key.title(),
+                scientific_name=None,
+                family=None,
+                identity_source_url=f"https://example.org/synthetic-{key}",
+                history_selectable=True,
+                recommendation_candidate=True,
+                catalog_status="active",
             )
-            for key in ("maize", "cowpea", "groundnut")
-        ]
+            profile = CropProfileRevision.model_construct(
+                id=PydanticObjectId(),
+                crop_id=crop.id,
+                revision=1,
+                is_active=True,
+                variety_key=None,
+                production_system_key=None,
+                evidence_status="provisional",
+                decision_traits=DecisionTraits(
+                    water_resilience_class=WATER_RESILIENCE_EVIDENCE[key]
+                ),
+            )
+            self.bundles.append(
+                CropCandidateBundle(crop=crop, active_profiles=(profile,), calendars=())
+            )
 
     async def list_recommendation_candidates(self, *, location_key: str):
         self.lookups.append(location_key)
@@ -503,7 +514,10 @@ def test_recommendation_route_reuses_one_context_lookup_and_returns_safe_result(
     assert response.status_code == 201
     body = response.json()
     assert body["farm_id"] == str(farm.id)
-    assert body["decision_status"] == "needs_review"
+    assert body["decision_status"] == "ranked_provisional"
+    assert body["scoring_result"]["ranking"]["status"] == "ranked"
+    assert body["scoring_result"]["ranking_mode"] == "water_soil_fallback"
+    assert body["scoring_result"]["ranking"]["criteria_used"] == ["water_resilience"]
     assert body["derived_context_period"]["start_date"] == (
         farm.environmental_context.period.start_date.isoformat()
     )
@@ -511,7 +525,17 @@ def test_recommendation_route_reuses_one_context_lookup_and_returns_safe_result(
     assert body["context_provenance"]["cache_action"] == "hit"
     assert body["future_window_summary"]["fully_scheduled_count"] == 0
     assert body["candidate_pool_summary"]["total_generated"] == 27
-    assert body["candidate_pool_summary"]["total_returned"] <= 3
+    assert body["candidate_pool_summary"]["total_returned"] == 3
+    assert len(body["scoring_result"]["options"]) == 3
+    first_water = next(
+        criterion
+        for criterion in body["scoring_result"]["options"][0]["criteria"]
+        if criterion["criterion"] == "water_resilience"
+    )
+    assert first_water["status"] == "assessed"
+    assert first_water["confidence"] in {"low", "moderate"}
+    assert first_water["evidence_references"]
+    assert "provisional" in first_water["rationale"].lower()
     assert len(snapshots.requests) == 1  # no duplicate NASA lookup inside one workflow
     assert catalog.lookups == ["ejura"]
     assert len(results.saved) == 1

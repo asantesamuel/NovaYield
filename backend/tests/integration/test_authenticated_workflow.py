@@ -466,11 +466,22 @@ def test_authenticated_workflow_persists_reuses_and_enforces_ownership(
                 assert first_result["climate_reference_provenance"] is None
                 assert first_result["climate_features"] == []
                 assert first_result["baseline_status"] == "deferred"
-                assert first_result["decision_status"] == "needs_review"
-                assert first_result["scoring_result"]["ranking"]["status"] == "withheld"
+                assert first_result["decision_status"] == "ranked_provisional"
+                assert first_result["scoring_result"]["ranking"]["status"] == "ranked"
+                assert first_result["scoring_result"]["ranking_mode"] == "water_soil_fallback"
+                assert first_result["scoring_result"]["ranking"]["criteria_used"] == [
+                    "water_resilience"
+                ]
                 assert first_result["scoring_result"]["baseline_option"] is None
                 assert first_result["candidate_pool_summary"]["total_generated"] == 216
-                assert first_result["candidate_pool_summary"]["total_returned"] <= 3
+                assert first_result["candidate_pool_summary"]["total_returned"] == 3
+                assert len(first_result["scoring_result"]["options"]) == 3
+                assert first_result["scoring_result"]["ranking"]["unranked_candidate_count"] > 0
+                assert all(
+                    "rice"
+                    not in {event["crop"]["crop_id"] for event in option["candidate"]["events"]}
+                    for option in first_result["scoring_result"]["options"]
+                )
                 assert first_result["future_window_summary"]["fully_scheduled_count"] == 0
                 assert len(nasa.request_windows) == 2
                 assert_public_payload_is_private(recommendation.text)
@@ -845,8 +856,9 @@ def test_sourced_synthetic_stage_round_trips_through_mongo_result() -> None:
                 assert assessed
                 assert all(feature["units"] == "days" for feature in assessed)
                 assert all(feature["complete_years_per_placement"] == 30 for feature in assessed)
-                assert body["decision_status"] == "needs_review"
-                assert body["scoring_result"]["options"] == []
+                assert body["decision_status"] == "ranked_provisional"
+                assert body["scoring_result"]["ranking"]["status"] == "ranked"
+                assert len(body["scoring_result"]["options"]) == 3
                 saved = await client.get(f"/api/v1/farms/{farm_id}/rotation-results/{body['id']}")
                 assert saved.status_code == 200
                 saved_features = saved.json()["climate_features"]

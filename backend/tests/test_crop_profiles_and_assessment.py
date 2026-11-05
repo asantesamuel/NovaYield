@@ -57,7 +57,7 @@ def make_candidate(crop_ids: tuple[str, str, str]) -> RotationCandidate:
 
 
 def test_crop_library_has_one_versioned_profile_for_each_mvp_crop() -> None:
-    assert CROP_LIBRARY_VERSION == "ny8-crop-library-v1"
+    assert CROP_LIBRARY_VERSION == "ny8-crop-library-v2"
     assert set(CROP_PROFILES) == {
         "maize",
         "cowpea",

@@ -1,8 +1,8 @@
 ---
 title: NY-8 provisional crop-by-criterion evidence matrix
 status: Desk-research evidence map; not a locally validated rating table
-version: 0.3
-prepared: 2026-11-04
+version: 0.4
+prepared: 2026-11-05
 ---
 
 # NY-8 Provisional Crop-by-Criterion Evidence Matrix
@@ -58,6 +58,31 @@ future season.
 | **Rice** | Not assessed. FAO paddy figures and Tono irrigation results must not be generalized while the MVP crop record lacks rice ecology. | Upland, lowland, and irrigated systems differ; production system and water access are unknown. [FAO crop water needs](https://www.fao.org/4/S2022E/s2022e07.htm); [Ghana rice strategy](https://www.jica.go.jp/english/our_work/thematic_issues/agricultural/pdf/ghana_en.pdf). |
 
 **Scoring implication:** NY-8 v4 carries these cited, coarse crop classes into the active water criterion. A sequence takes the least water-resilient rated crop as a conservative bottleneck; any sequence containing an unassessed crop (currently rice without an identified ecology) has water `not_assessed` and remains unranked. The classes do not estimate actual crop water requirements or farm water sufficiency. NASA historical precipitation/temperature is attached as context and does not change them. Local calendar, variety, soil, irrigation, and field validation remain outstanding.
+
+### Approved implementation clarification — 5 November 2026
+
+The Product Owner approved carrying the five classes above into versioned,
+generic MongoDB crop-profile revisions so the already-approved Decision 13
+water-only fallback can produce provisional comparisons. The source, confidence,
+applicability and limitations travel with each class. This does not turn desk
+research into local validation or create a numeric water-demand estimate.
+
+Missing future planting dates stay `needs_review`, but they no longer suppress
+the coarse water-class comparison. The API may return up to three
+`ranked_provisional` alternatives while separately reporting that their future
+calendar/suitability still needs review. Rice remains unranked until its
+production system supports comparable evidence. At least two alternatives
+must share the assessed water basis; otherwise ranking is withheld. Repeated
+crops remain visible if generated and are not silently excluded by an
+unapproved rotation rule.
+
+The historical NASA indicators remain a past-period context gate and
+provenance. They do not alter the coarse class or its order. The separately
+approved 1991–2020 consecutive-dry-day method may refine only a strict weighted
+tie when the exact crop stage, timing, and reference data are available. It is
+not translated into crop water sufficiency. With current soil, yield-stability,
+and labour evidence still `not_assessed`, the live comparison uses water alone;
+farmer priorities for the unavailable criteria are disclosed and ignored.
 
 ## Soil-health potential
 
@@ -160,7 +185,9 @@ Keep these concepts separate in both the request schema and result provenance:
    validation.
 
 Do not reuse the past analysis dates as future planting-event dates. A future
-slot without a reviewed calendar is still review-needed and can block ranking.
+slot without a reviewed calendar is still review-needed and blocks calendar
+and stage-dependent assessments; it does not, by itself, block the explicitly
+provisional water-class fallback described above.
 
 ## References
 

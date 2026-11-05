@@ -8,7 +8,7 @@ Four-criterion mode requires comparable, assessed evidence for every criterion o
 
 ## Versioned crop profiles
 
-`app.decisions.crop_profiles` owns `CROP_LIBRARY_VERSION` and the six approved crop records. `CropProfile` has optional identity, variety, production-system, maturity, calendar, and trait fields. `CropTraitEvidence` records a trait value or range, unit, evidence status, source, study location/system, confidence, applicability, and limitations. Provisional or locally validated traits need a source reference. A trait marked `unknown` cannot carry an inferred value.
+`app.decisions.crop_profiles` owns the evidence used by the initial seed and the six approved crop records. `CropCatalogRepository.seed_missing()` copies sourced values into versioned Mongo `CropProfileRevision` documents. The live recommendation workflow reads those persisted revisions and adapts only the generic crop profile into the pure assessment contract; variety- or production-system-specific records are never inherited. `CropTraitEvidence` records the trait value, evidence status, source references, study location/system, source confidence, pilot transferability, applicability, and limitations. Unknown values stay absent.
 
 The current library deliberately populates only source-backed water evidence:
 
@@ -34,7 +34,7 @@ coverage remains explicit; no unapproved percentage threshold is invented.
 These past NASA windows are environmental context and provenance, never the
 future planting slots used to generate the candidate sequence.
 
-- **Water resilience:** If each crop has a comparable provisional class, the sequence takes its least-resilient crop as a conservative bottleneck. A sequence containing a crop without a comparable class, such as rice with no production system, is `not_assessed`. NASA history provides traceable context but does not change crop classes or create a future forecast or field water balance.
+- **Water resilience:** If each crop has a comparable provisional class, the sequence takes its least-resilient crop as a conservative bottleneck. A sequence containing a crop without a comparable class, such as rice with no production system, is `not_assessed` and remains outside the water-only ranked subset. A missing future calendar still leaves event timing `needs_review`, but it does not suppress this coarse crop-class comparison. NASA history provides traceable past-period context but does not change crop classes, create a future forecast, or estimate field water balance. The approved CDD feature may only refine a strict weighted tie when exact scoped stage/timing and reference evidence are available.
 - **Soil-health potential:** Current sequence ratings are `not_assessed`. Ghana legume/residue studies are specific to treatments and following crops; variety, residue, soil, and fertility context are absent. Crop family alone does not create a soil benefit.
 - **Yield-stability proxy:** Current sequence ratings are `not_assessed`. Reviewed studies are crop-, variety-, site-, and environment-specific and do not provide a common scale for these three-event alternatives.
 - **Labour feasibility:** Current ratings are `not_assessed`. Published operation estimates are not farm feasibility evidence; the Farm profile does not provide available labour, plot area, operation timing, or machinery/service access.
@@ -46,7 +46,7 @@ groundnut/maize relationships remain `needs_review` without variety, residue,
 soil-fertility, and local-transfer context. A relationship warning supplies no
 soil score or nitrogen credit.
 
-The assessor retains citations, assumptions, confidence, and missing-context reasons. It does not turn missing ratings into scores. Since current soil evidence is `not_assessed`, the actual fallback uses water alone; farmer priorities attached to unavailable criteria are ignored and disclosed. The evidence and limitations are recorded in the [crop-by-criterion evidence matrix](../../analysis_docs/research/ny-8-crop-criterion-evidence-matrix.md).
+The assessor retains citations, assumptions, confidence, transferability, and missing-context reasons. It does not turn missing ratings into scores. Since current soil evidence is `not_assessed`, the actual fallback uses water alone; farmer priorities attached to unavailable criteria are ignored and disclosed. Future timing warnings remain visible even when an option has a provisional rank. The evidence and limitations are recorded in the [crop-by-criterion evidence matrix](../../analysis_docs/research/ny-8-crop-criterion-evidence-matrix.md).
 
 ## Hard constraints and review warnings
 

@@ -11,16 +11,22 @@ from pymongo.errors import DuplicateKeyError
 
 from app.farms.catalog_seed_data import (
     CROP_IDENTITY_SEEDS,
+    GENERIC_PROFILE_SOURCE_NOTE,
     GENERIC_STAGE_SEEDS,
+    LEGACY_GENERIC_PROFILE_NOTE,
     MOFA_MAIZE,
     NAMED_PROFILE_SEEDS,
     REGIONAL_CALENDAR_SEEDS,
+    WATER_RESILIENCE_EVIDENCE,
     _source,
 )
 from app.models.crop_catalog import (
+    CROP_PROFILE_SCHEMA_VERSION,
     Crop,
     CropCalendar,
     CropProfileRevision,
+    DecisionTraits,
+    EvidenceValue,
     MaturityEvidence,
     MaturityRange,
 )
@@ -166,22 +172,7 @@ class CropCatalogRepository:
             crop = crops_by_key[crop_key]
             if crop.id is None:
                 raise RuntimeError("Seeded crop is missing its Mongo identity")
-            stages = list(GENERIC_STAGE_SEEDS.get(crop_key, ()))
-            counts["profiles"] += await self._insert_profile_if_absent(
-                dict(
-                    crop_id=crop.id,
-                    revision=1,
-                    is_active=True,
-                    published_at=datetime.now(UTC),
-                    variety_key=None,
-                    production_system_key=None,
-                    evidence_status="provisional" if stages else "unknown",
-                    growth_stages=stages,
-                    source_note=(
-                        "Generic identity has no validated local duration or numerical crop traits."
-                    ),
-                )
-            )
+            counts["profiles"] += await self._seed_generic_profile(crop, crop_key)
 
         for seed in NAMED_PROFILE_SEEDS:
             crop = crops_by_key[seed["crop_key"]]
@@ -278,6 +269,124 @@ class CropCatalogRepository:
                 ):
                     raise
         return counts
+
+    async def _seed_generic_profile(self, crop: Crop, crop_key: str) -> int:
+        """Seed a water class or safely promote only our original generic seed."""
+
+        if crop.id is None:
+            raise RuntimeError("Seeded crop is missing its Mongo identity")
+        scope = {
+            "crop_id": crop.id,
+            "variety_key": None,
+            "production_system_key": None,
+        }
+        water_evidence = WATER_RESILIENCE_EVIDENCE.get(crop_key)
+        active = await self._profile_model.find_one({**scope, "is_active": True})
+
+        if active is not None:
+            current_traits = getattr(active, "decision_traits", None) or DecisionTraits()
+            if current_traits.water_resilience_class is not None or water_evidence is None:
+                return 0
+            if (
+                getattr(active, "revision", None) != 1
+                or getattr(active, "source_note", None) != LEGACY_GENERIC_PROFILE_NOTE
+            ):
+                # A team-authored profile is authoritative, even if it has not
+                # populated this optional trait. Never overwrite it with seeds.
+                return 0
+            replacement = await self._generic_profile_revision_two(active, water_evidence)
+            if replacement is None:
+                return 0
+            active.is_active = False
+            await active.save()
+            replacement.is_active = True
+            replacement.published_at = datetime.now(UTC)
+            await replacement.save()
+            return 1
+
+        # Recover an interrupted seed migration: the previous run may have
+        # inserted revision 2 and deactivated revision 1 before activation.
+        pending = await self._profile_model.find_one({**scope, "revision": 2})
+        if (
+            pending is not None
+            and water_evidence is not None
+            and getattr(pending, "source_note", None) == GENERIC_PROFILE_SOURCE_NOTE
+            and getattr(getattr(pending, "decision_traits", None), "water_resilience_class", None)
+            is not None
+        ):
+            pending.is_active = True
+            pending.published_at = datetime.now(UTC)
+            await pending.save()
+            return 0
+
+        stages = list(GENERIC_STAGE_SEEDS.get(crop_key, ()))
+        return await self._insert_profile_if_absent(
+            dict(
+                crop_id=crop.id,
+                revision=1,
+                is_active=True,
+                published_at=datetime.now(UTC),
+                variety_key=None,
+                production_system_key=None,
+                evidence_status=("provisional" if stages or water_evidence else "unknown"),
+                growth_stages=stages,
+                decision_traits=DecisionTraits(water_resilience_class=water_evidence),
+                source_note=GENERIC_PROFILE_SOURCE_NOTE,
+            )
+        )
+
+    async def _generic_profile_revision_two(
+        self,
+        profile: CropProfileRevision,
+        water_evidence: EvidenceValue,
+    ) -> CropProfileRevision | None:
+        """Create an immutable replacement for only the exact legacy seed profile."""
+
+        fields = {
+            **profile.model_dump(exclude={"id", "revision", "is_active", "published_at"}),
+            "schema_version": CROP_PROFILE_SCHEMA_VERSION,
+            "revision": 2,
+            "is_active": False,
+            "published_at": None,
+            "evidence_status": "provisional",
+            "decision_traits": (
+                getattr(profile, "decision_traits", None) or DecisionTraits()
+            ).model_copy(update={"water_resilience_class": water_evidence}),
+            "source_note": GENERIC_PROFILE_SOURCE_NOTE,
+        }
+        existing = await self._profile_model.find_one(
+            {
+                "crop_id": profile.crop_id,
+                "variety_key": None,
+                "production_system_key": None,
+                "revision": 2,
+            }
+        )
+        if existing is not None:
+            if (
+                getattr(existing, "source_note", None) == GENERIC_PROFILE_SOURCE_NOTE
+                and getattr(
+                    getattr(existing, "decision_traits", None), "water_resilience_class", None
+                )
+                is not None
+            ):
+                return existing
+            return None
+        replacement = self._profile_model(**fields)
+        try:
+            await replacement.insert()
+        except DuplicateKeyError:
+            replacement = await self._profile_model.find_one(
+                {
+                    "crop_id": profile.crop_id,
+                    "variety_key": None,
+                    "production_system_key": None,
+                    "revision": 2,
+                }
+            )
+            if replacement is None:
+                raise
+        return replacement
 
     async def _insert_profile_if_absent(self, fields: dict[str, Any]) -> int:
         query = {

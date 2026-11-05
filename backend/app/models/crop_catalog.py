@@ -21,7 +21,7 @@ EvidenceStatus = Literal["unknown", "provisional", "locally_reviewed", "conflict
 Confidence = Literal["low", "moderate", "high"]
 
 CROP_IDENTITY_SCHEMA_VERSION = "crop-identity-v1"
-CROP_PROFILE_SCHEMA_VERSION = "crop-profile-v1"
+CROP_PROFILE_SCHEMA_VERSION = "crop-profile-v2"
 CROP_CALENDAR_SCHEMA_VERSION = "crop-calendar-v1"
 
 
@@ -31,6 +31,7 @@ class SourceEvidence(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     source_url: str
+    additional_source_urls: tuple[str, ...] = ()
     source_title: str
     source_publication_date: date | None = None
     study_location: str | None = None
@@ -71,6 +72,7 @@ class DecisionTraits(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     crop_water_need_mm: EvidenceValue | None = None
+    water_resilience_class: EvidenceValue | None = None
     crop_coefficient_by_stage: list[EvidenceValue] | None = None
     temperature_response: EvidenceValue | None = None
     soil_nutrient_residue_effect: EvidenceValue | None = None

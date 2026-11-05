@@ -6,6 +6,8 @@ from typing import Any
 
 from beanie import PydanticObjectId
 
+from app.farms.catalog_seed_data import LEGACY_GENERIC_PROFILE_NOTE, WATER_RESILIENCE_EVIDENCE
+from app.models.crop_catalog import DecisionTraits
 from app.repositories.crop_catalog import CropCatalogRepository
 from app.repositories.farm_reference_options import FarmReferenceRepository
 from app.repositories.farms import FarmRepository
@@ -20,6 +22,17 @@ class FakeDocument:
     async def insert(self) -> "FakeDocument":
         self._model.documents.append(self)
         return self
+
+    async def save(self) -> "FakeDocument":
+        return self
+
+    def model_dump(self, *, exclude: set[str] | None = None) -> dict[str, Any]:
+        excluded = exclude or set()
+        return {
+            key: value
+            for key, value in self.__dict__.items()
+            if key not in excluded and key != "_model"
+        }
 
 
 class FakeCursor:
@@ -94,6 +107,27 @@ def test_catalog_seed_is_idempotent_and_candidate_bundle_uses_same_crops() -> No
         for profile in profiles.documents
         if profile.variety_key is None
     )
+    generic_by_crop = {
+        crop.crop_key: next(
+            profile
+            for profile in profiles.documents
+            if profile.crop_id == crop.id
+            and profile.variety_key is None
+            and profile.production_system_key is None
+            and profile.is_active
+        )
+        for crop in crops.documents
+        if crop.crop_key in {"maize", "cowpea", "groundnut", "cassava", "yam", "rice"}
+    }
+    assert {
+        crop_key: profile.decision_traits.water_resilience_class.value["class"]
+        for crop_key, profile in generic_by_crop.items()
+        if profile.decision_traits.water_resilience_class is not None
+    } == {
+        crop_key: evidence.value["class"]
+        for crop_key, evidence in WATER_RESILIENCE_EVIDENCE.items()
+    }
+    assert generic_by_crop["rice"].decision_traits.water_resilience_class is None
 
 
 def test_seed_preserves_curated_active_profile_and_calendar_revisions() -> None:
@@ -147,6 +181,48 @@ def test_seed_preserves_curated_active_profile_and_calendar_revisions() -> None:
         and calendar.profile_revision_id is None
         and calendar.season_key == curated_calendar.season_key
     ] == [curated_calendar]
+
+
+def test_seed_adds_a_new_revision_only_for_the_original_generic_seed() -> None:
+    crops = FakeModel({"catalog_status": "active"})
+    profiles = FakeModel({"is_active": True, "maturity_days": None})
+    calendars = FakeModel()
+    catalog = CropCatalogRepository(crops, profiles, calendars)
+
+    async def run() -> tuple[dict[str, int], dict[str, int], Any, Any]:
+        maize = crops(crop_key="maize", common_name="Maize")
+        await maize.insert()
+        legacy = profiles(
+            crop_id=maize.id,
+            revision=1,
+            variety_key=None,
+            production_system_key=None,
+            is_active=True,
+            published_at=None,
+            evidence_status="provisional",
+            decision_traits=DecisionTraits(),
+            source_note=LEGACY_GENERIC_PROFILE_NOTE,
+        )
+        await legacy.insert()
+        first = await catalog.seed_missing()
+        second = await catalog.seed_missing()
+        current = await profiles.find_one(
+            {
+                "crop_id": maize.id,
+                "variety_key": None,
+                "production_system_key": None,
+                "is_active": True,
+            }
+        )
+        return first, second, legacy, current
+
+    first, second, legacy, current = asyncio.run(run())
+    assert first["profiles"] == 13
+    assert second["profiles"] == 0
+    assert legacy.is_active is False
+    assert current is not None and current.revision == 2
+    assert current.decision_traits.water_resilience_class.value["class"] == "low"
+    assert current.decision_traits.water_resilience_class.source.validation_status == "provisional"
 
 
 class FakeLegacyCollection:

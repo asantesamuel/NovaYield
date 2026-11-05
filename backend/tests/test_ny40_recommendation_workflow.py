@@ -22,6 +22,7 @@ from app.decisions.scoring import (
     ScoringRequest,
     score_rotation_options,
 )
+from app.farms.catalog_seed_data import WATER_RESILIENCE_EVIDENCE
 from app.farms.context_window import derive_context_period
 from app.farms.contracts import LocationCoordinates
 from app.integrations.nasa.power import (
@@ -36,6 +37,7 @@ from app.models.crop_catalog import (
     Crop,
     CropCalendar,
     CropProfileRevision,
+    DecisionTraits,
     EvidenceValue,
     GrowthStage,
     MaturityEvidence,
@@ -215,24 +217,33 @@ class FakeSnapshotService:
 class FakeCatalogRepository:
     def __init__(self, crop_keys: tuple[str, ...]) -> None:
         self.location_keys: list[str] = []
-        self.bundles = [
-            CropCandidateBundle(
-                crop=Crop.model_construct(
-                    id=PydanticObjectId(),
-                    crop_key=key,
-                    common_name=key.title(),
-                    scientific_name=None,
-                    family=None,
-                    identity_source_url=f"https://example.org/synthetic-{key}",
-                    history_selectable=True,
-                    recommendation_candidate=True,
-                    catalog_status="active",
-                ),
-                active_profiles=(),
-                calendars=(),
+        self.bundles = []
+        for key in crop_keys:
+            crop = Crop.model_construct(
+                id=PydanticObjectId(),
+                crop_key=key,
+                common_name=key.title(),
+                scientific_name=None,
+                family=None,
+                identity_source_url=f"https://example.org/synthetic-{key}",
+                history_selectable=True,
+                recommendation_candidate=True,
+                catalog_status="active",
             )
-            for key in crop_keys
-        ]
+            water_evidence = WATER_RESILIENCE_EVIDENCE.get(key)
+            profile = CropProfileRevision.model_construct(
+                id=PydanticObjectId(),
+                crop_id=crop.id,
+                revision=1,
+                is_active=True,
+                variety_key=None,
+                production_system_key=None,
+                evidence_status="provisional" if water_evidence else "unknown",
+                decision_traits=DecisionTraits(water_resilience_class=water_evidence),
+            )
+            self.bundles.append(
+                CropCandidateBundle(crop=crop, active_profiles=(profile,), calendars=())
+            )
 
     async def list_recommendation_candidates(
         self, *, location_key: str
@@ -315,7 +326,7 @@ def test_owned_farm_uses_its_saved_period_and_only_canonical_catalog_candidates(
     )
 
 
-def test_missing_calendar_and_stage_evidence_stay_review_needed_without_reference_call() -> None:
+def test_missing_future_timing_stays_review_needed_but_water_classes_can_rank() -> None:
     farm = _farm()
     period = farm.environmental_context.period
     assert period is not None
@@ -329,7 +340,7 @@ def test_missing_calendar_and_stage_evidence_stay_review_needed_without_referenc
         FakeResultRepository(),
     )
 
-    assert result.decision_status == "needs_review"
+    assert result.decision_status == "ranked_provisional"
     assert result.future_window_summary.fully_scheduled_count == 0
     assert result.future_window_summary.needs_review_count == 27
     assert "scoped_crop_calendar_missing" in result.future_window_summary.review_reasons
@@ -342,7 +353,16 @@ def test_missing_calendar_and_stage_evidence_stay_review_needed_without_referenc
         for candidate in result.candidate_generation.candidates
         for event in candidate.events
     )
-    assert result.scoring_result.ranking is None or result.scoring_result.ranking.status != "ranked"
+    assert result.scoring_result.ranking is not None
+    assert result.scoring_result.ranking.status == "ranked"
+    assert result.scoring_result.ranking_mode == "water_soil_fallback"
+    assert result.scoring_result.ranking.criteria_used == ("water_resilience",)
+    assert len(result.scoring_result.options) == 3
+    assert all(
+        next(item for item in option.criteria if item.criterion == "soil_health_potential").status
+        == "not_assessed"
+        for option in result.scoring_result.options
+    )
 
 
 def test_non_v2_or_nonowned_farm_cannot_start_recommendation_work() -> None:
@@ -466,6 +486,9 @@ def _sourced_generic_catalog() -> FakeCatalogRepository:
                 )
             ],
             evidence_status="provisional",
+            decision_traits=DecisionTraits(
+                water_resilience_class=WATER_RESILIENCE_EVIDENCE[crop.crop_key]
+            ),
             published_at=datetime(2026, 11, 1, tzinfo=UTC),
         )
         calendars = tuple(
@@ -582,9 +605,7 @@ class FakeTwoPeriodSnapshotService(FakeSnapshotService):
         raise AssertionError("Unexpected NASA request outside saved context/reference")
 
 
-def test_sourced_generic_stage_changes_climate_comparison_but_unrated_water_withholds_rank() -> (
-    None
-):
+def test_sourced_generic_stage_changes_climate_tie_order_with_provisional_water_classes() -> None:
     catalog = _sourced_generic_catalog()
 
     def scenario(*, reverse: bool):
@@ -630,14 +651,14 @@ def test_sourced_generic_stage_changes_climate_comparison_but_unrated_water_with
     dry_first, comparison_b, options_b = scenario(reverse=True)
     assert comparison_a.status == "left_preferred"
     assert comparison_b.status == "right_preferred"
-    # Decision 13 still gates ranking on a sourced comparable water rating.
-    # The catalog has sourced timing/stages, but no approved rating translation
-    # from meteorological CDD to crop water sufficiency or resilience class.
+    # The provisional crop classes make a water-only rank possible. NASA CDD
+    # remains only a strict tie preference; it is not translated into a crop
+    # water-sufficiency rating.
     for result in (wet_first, dry_first):
-        assert result.decision_status == "needs_review"
-        assert result.scoring_result.ranking is None or (
-            result.scoring_result.ranking.status != "ranked"
-        )
+        assert result.decision_status == "ranked_provisional"
+        assert result.scoring_result.ranking is not None
+        assert result.scoring_result.ranking.status == "ranked"
+        assert result.scoring_result.ranking_mode == "water_soil_fallback"
 
     # This separate test-only scoring input supplies explicit equal, comparable
     # four-criterion ratings. It is not promoted into the live catalog. The

@@ -16,6 +16,7 @@ This directory contains Nova Yield's FastAPI application and Python dependencies
 - `docs/persistence-conventions.md` explains MongoDB references, indexes, and lifecycle conventions from NY-4.
 - `docs/nasa-power.md` records the NY-5 request, normalization, coverage, privacy, and error contracts.
 - `docs/nasa-power-snapshots.md` records the NY-6 identity, persistence, and refresh-policy decisions.
+- `docs/supported-locations.md` and `docs/farms-api.md` describe the curated location catalog, coordinate privacy, farm requests, authentication, and coverage notice.
 
 ## Local development (Windows PowerShell)
 
@@ -63,6 +64,14 @@ python -m uvicorn app.main:app --reload
 ```
 
 The API is at `http://127.0.0.1:8000`, OpenAPI docs at `http://127.0.0.1:8000/docs`, and health probes at `/health/live` and `/health/ready`. The process can start while MongoDB is unavailable; `/health/ready` returns HTTP 503 until the database can be reached and Beanie initialization succeeds.
+
+Seed the initial supported-location catalog into the configured MongoDB database with:
+
+```powershell
+python -m app.farms.seed_locations
+```
+
+This command is safe to rerun: it inserts missing catalog keys and leaves existing location records untouched. The stored points and their limitations are documented in [supported-locations.md](docs/supported-locations.md).
 
 ## Checks
 
